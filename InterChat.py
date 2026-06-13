@@ -27,16 +27,27 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
+    # 針對目標頻道發送訊息
     for channel_id in CROSS_CHAT_CHANNELS:
         if channel_id != message.channel.id:
             target_channel = bot.get_channel(channel_id)
             if target_channel:
-                embed = discord.Embed(description=message.content, color=discord.Color.green())
-                embed.set_author(name=f"{message.author.display_name} @ {message.guild.name}", 
-                                 icon_url=message.author.avatar.url if message.author.avatar else None)
-                if message.attachments:
-                    embed.set_image(url=message.attachments[0].url)
-                await target_channel.send(embed=embed)
+                # 1. 取得或建立 Webhook
+                webhooks = await target_channel.webhooks()
+                # 尋找機器人自己創建的 Webhook
+                webhook = next((w for w in webhooks if w.name == "CrossChat"), None)
+                
+                if not webhook:
+                    # 如果沒有就建立一個
+                    webhook = await target_channel.create_webhook(name="CrossChat")
+                
+                # 2. 透過 Webhook 發送訊息 (模仿使用者頭像與名字)
+                await webhook.send(
+                    content=message.content,
+                    username=f"{message.author.display_name} ({message.guild.name})",
+                    avatar_url=message.author.avatar.url if message.author.avatar else None
+                )
+    
     await bot.process_commands(message)
 
 if __name__ == "__main__":
