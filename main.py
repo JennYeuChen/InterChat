@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 import os
 import threading
+from datetime import datetime
 from flask import Flask
 
 # Flask 網頁伺服器，用來維持 Render 活躍
@@ -60,6 +61,9 @@ PROJECTION_CHANNEL_ID = 1517214446844645397 # 頻道 ID
 # 如果需要機器人加入的語音房，填入 ID，否則設為 None
 BOT_JOIN_CHANNEL_ID = 1515416118645493770
 
+# --- 時間頻道邏輯 ---
+TIME_CHANNEL_ID = 1246736970013741077
+
 # 建立一個每 15 秒檢查一次的任務
 @tasks.loop(seconds=15)
 async def check_my_status():
@@ -74,7 +78,7 @@ async def check_my_status():
         if member and member.voice and member.voice.channel:
             # 偵測到你在語音中！
             count = len(member.voice.channel.members)
-            new_name = f"🔴｜瑪芬柏仔群 {count}人)"
+            new_name = f"🔴｜瑪芬柏仔群 {count}人"
             
             if projection_channel.name != new_name:
                 await projection_channel.edit(name=new_name)
@@ -86,11 +90,35 @@ async def check_my_status():
         if projection_channel.name != "🟢｜瑪芬在群裡":
             await projection_channel.edit(name="🟢｜瑪芬在群裡")
 
+@tasks.loop(minutes=30)
+async def update_time_channel():
+    channel = bot.get_channel(TIME_CHANNEL_ID)
+    if not channel:
+        return
+
+    # 獲取當前小時 (注意：Render 的伺服器時間預設為 UTC，你可能需要 +8 小時調整為台灣時間)
+    # 如果發現時間不對，請將 now = datetime.utcnow().hour + 8 修改為適合的時區
+    now = datetime.utcnow().hour + 8
+    if now >= 24: now -= 24
+    
+    # 設定咖啡與啤酒的時段
+    # 假設 06:00 - 18:00 為咖啡時段，18:00 - 06:00 為啤酒時段
+    if 6 <= now < 18:
+        new_name = "☕｜來一杯咖啡"
+    else:
+        new_name = "🍺｜來一杯啤酒"
+
+    # 只有名字不同時才修改，避免 API 限制
+    if channel.name != new_name:
+        await channel.edit(name=new_name)
+
 # 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
     print("機器人已啟動，開始監控投影...")
     check_my_status.start()
+    if not update_time_channel.is_running():
+        update_time_channel.start()
 
 if __name__ == "__main__":
     # 啟動 Web Server 線程
