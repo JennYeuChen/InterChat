@@ -60,47 +60,27 @@ PROJECTION_CHANNEL_ID = 1517214446844645397 # 頻道 ID
 # 如果需要機器人加入的語音房，填入 ID，否則設為 None
 BOT_JOIN_CHANNEL_ID = 1515416118645493770
 
-@tasks.loop(seconds=30)
-async def check_voice_status():
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # 只監控你自己
+    if member.id != MY_ID:
+        return
+
     projection_channel = bot.get_channel(PROJECTION_CHANNEL_ID)
     if not projection_channel:
         return
 
-    found_you = False
-    for guild in bot.guilds:
-        member = guild.get_member(MY_ID)
-        if member and member.voice and member.voice.channel:
-            count = len(member.voice.channel.members)
-            await projection_channel.edit(name=f"🔴｜瑪芬和{count}個人在語音中")
-            
-            # 機器人加入語音 (保持原本的連接邏輯)
-            if BOT_JOIN_CHANNEL_ID:
-                bot_join_channel = bot.get_channel(BOT_JOIN_CHANNEL_ID)
-                if bot_join_channel and not bot.voice_clients:
-                    await bot_join_channel.connect()
-            
-            found_you = True
-            break
-            
-    if not found_you:
+    # 只要你進入任何語音房，就觸發
+    if after.channel is not None:
+        # 這裡不監測具體在哪個群，而是直接顯示你在語音
+        await projection_channel.edit(name="🔴｜瑪芬正在柏仔群")
+    # 如果你離開語音房
+    elif after.channel is None:
         await projection_channel.edit(name="🟢｜瑪芬在群裡")
-        
-        # 機器人斷開
-        for vc in bot.voice_clients:
-            await vc.disconnect()
 
 @bot.event
 async def on_ready():
     print(f'機器人已上線: {bot.user}')
-    # 遍歷機器人加入的所有伺服器
-    for guild in bot.guilds:
-        member = guild.get_member(MY_ID)
-        if member and member.voice:
-            print(f"DEBUG: 抓到你了！你在 {guild.name} 伺服器的 {member.voice.channel.name}")
-        else:
-            print(f"DEBUG: 在 {guild.name} 找不到你，或你沒在語音中")
-    # 啟動輪詢任務
-    check_voice_status.start()
 
 if __name__ == "__main__":
     # 啟動 Web Server 線程
