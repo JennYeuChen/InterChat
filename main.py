@@ -2,12 +2,10 @@ import discord
 from discord.ext import commands, tasks
 import os
 import threading
-from flask import Flask
 from datetime import datetime
-from collections import Counter
-import re
+from flask import Flask
 
-# 1. 網頁伺服器：保持 Render 活躍
+# Flask 網頁伺服器，用來維持 Render 活躍
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -16,87 +14,113 @@ def home():
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
-# 2. 機器人初始化
+# 機器人邏輯
+TOKEN = os.environ.get("DISCORD_TOKEN")
+CROSS_CHAT_CHANNELS = [int(cid) for cid in os.environ.get("CROSS_CHAT_CHANNELS", "").split(",") if cid]
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.voice_states = True
+intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 配置參數
-MY_ID = 1150359752359038986
-PROJECTION_CHANNEL_ID = 1517214446844645397
-TIME_CHANNEL_ID = 1246736970013741077
-EMOJI_TARGET_CHANNEL = 1231050943663964195
-EMOJI_REGEX = re.compile(r'<a?:[a-zA-Z0-9_]+:([0-9]+)>')
+@bot.event
+async def on_message(message):
+    if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
+        await bot.process_commands(message)
+        return
 
-# 3. 任務：咖啡與啤酒時鐘
-@tasks.loop(minutes=30)
-async def update_time_channel():
-    channel = bot.get_channel(TIME_CHANNEL_ID)
-    if not channel: return
-
-    # 台灣時間調整
-    now = datetime.utcnow().hour + 8
-    if now >= 24: now -= 24
+    # 針對目標頻道發送訊息
+    for channel_id in CROSS_CHAT_CHANNELS:
+        if channel_id != message.channel.id:
+            target_channel = bot.get_channel(channel_id)
+            if target_channel:
+                # 1. 取得或建立 Webhook
+                webhooks = await target_channel.webhooks()
+                # 尋找機器人自己創建的 Webhook
+                webhook = next((w for w in webhooks if w.name == "CrossChat"), None)
+                
+                if not webhook:
+                    # 如果沒有就建立一個
+                    webhook = await target_channel.create_webhook(name="CrossChat")
+                
+                # 2. 透過 Webhook 發送訊息 (模仿使用者頭像與名字)
+                await webhook.send(
+                    content=message.content,
+                    username=f"{message.author.display_name} ({message.guild.name})",
+                    avatar_url=message.author.avatar.url if message.author.avatar else None
+                )
     
-    new_name = "☕｜來一杯咖啡" if 6 <= now < 18 else "🍺｜來一杯啤酒"
-    if channel.name != new_name:
-        await channel.edit(name=new_name)
+    await bot.process_commands(message)
 
-# 4. 任務：語音狀態投影 (強制偵測版)
-@tasks.loop(seconds=20)
-async def smart_projection():
+# --- 語音投影邏輯 ---
+MY_ID = 1150359752359038986
+TARGET_VOICE_CHANNELS = [1349216822272065556, 1349216872138149888] # 柏仔群語音
+PROJECTION_CHANNEL_ID = 1517214446844645397 # 頻道 ID
+# 如果需要機器人加入的語音房，填入 ID，否則設為 None
+BOT_JOIN_CHANNEL_ID = 1515416118645493770
+
+# --- 時間頻道邏輯 ---
+TIME_CHANNEL_ID = 1246736970013741077
+
+# 建立一個每 15 秒檢查一次的任務
+@tasks.loop(seconds=15)
+async def check_my_status():
     projection_channel = bot.get_channel(PROJECTION_CHANNEL_ID)
-    if not projection_channel: return
+    if not projection_channel:
+        return
 
-    found_you = False
+    found = False
+    # 遍歷機器人所在的「所有」伺服器，尋找你
     for guild in bot.guilds:
         member = guild.get_member(MY_ID)
         if member and member.voice and member.voice.channel:
+            # 偵測到你在語音中！
             count = len(member.voice.channel.members)
-            await projection_channel.edit(name=f"🔴｜瑪芬遠征中 ({count}人)")
-            found_you = True
-            break
+            new_name = f"🔴｜瑪芬柏仔群 {count}人"
             
-    if not found_you:
-        await projection_channel.edit(name="🟢｜瑪芬在群裡")
-
-# 5. Emoji 統計指令 (僅限管理員)
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def count_emojis(ctx):
-    channel = bot.get_channel(EMOJI_TARGET_CHANNEL)
-    if not channel:
-        return await ctx.send("❌ 找不到統計頻道。")
-
-    msg = await ctx.send("⏳ 正在統計歷史 Emoji，請稍候...")
-    emoji_counts = Counter()
-    server_emojis = {str(e.id): e for e in ctx.guild.emojis}
+            if projection_channel.name != new_name:
+                await projection_channel.edit(name=new_name)
+            found = True
+            break
     
-    async for message in channel.history(limit=None):
-        if message.author.bot: continue
-        matches = EMOJI_REGEX.findall(message.content)
-        for emoji_id in matches:
-            if emoji_id in server_emojis:
-                emoji_counts[emoji_id] += 1
+    # 如果所有伺服器都找不到你在語音
+    if not found:
+        if projection_channel.name != "🟢｜瑪芬在群裡":
+            await projection_channel.edit(name="🟢｜瑪芬在群裡")
 
-    if not emoji_counts:
-        return await msg.edit(content="❌ 無 Emoji 紀錄。")
+@tasks.loop(minutes=30)
+async def update_time_channel():
+    channel = bot.get_channel(TIME_CHANNEL_ID)
+    if not channel:
+        return
 
-    top_emojis = emoji_counts.most_common(15)
-    result = f"🏆 **<#{EMOJI_TARGET_CHANNEL}> Emoji 排行榜** 🏆\n"
-    for i, (eid, count) in enumerate(top_emojis, 1):
-        emoji = server_emojis[eid]
-        result += f"{i}. {emoji} `{emoji.name}`: **{count} 次**\n"
-    await msg.edit(content=result)
+    # 獲取當前小時 (注意：Render 的伺服器時間預設為 UTC，你可能需要 +8 小時調整為台灣時間)
+    # 如果發現時間不對，請將 now = datetime.utcnow().hour + 8 修改為適合的時區
+    now = datetime.utcnow().hour + 8
+    if now >= 24: now -= 24
+    
+    # 設定咖啡與啤酒的時段
+    # 假設 06:00 - 18:00 為咖啡時段，18:00 - 06:00 為啤酒時段
+    if 6 <= now < 18:
+        new_name = "☕｜來一杯咖啡"
+    else:
+        new_name = "🍺｜來一杯啤酒"
 
+    # 只有名字不同時才修改，避免 API 限制
+    if channel.name != new_name:
+        await channel.edit(name=new_name)
+
+# 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
-    print(f'機器人已上線: {bot.user}')
-    update_time_channel.start()
-    smart_projection.start()
+    print("機器人已啟動，開始監控投影...")
+    check_my_status.start()
+    if not update_time_channel.is_running():
+        update_time_channel.start()
 
 if __name__ == "__main__":
-    threading.Thread(target=run_web, daemon=True).start()
-    bot.run(os.environ.get("DISCORD_TOKEN"))
+    # 啟動 Web Server 線程
+    threading.Thread(target=run_web).start()
+    bot.run(TOKEN)
