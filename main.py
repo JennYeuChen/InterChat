@@ -1,126 +1,84 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
+from collections import Counter
+import re
 import os
 import threading
-from datetime import datetime
 from flask import Flask
+from datetime import datetime
 
-# Flask 網頁伺服器，用來維持 Render 活躍
+# 1. 為了 Render 24 小時不休眠的 Web Server
 app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Bot is alive!"
+    return "Emoji Counter Bot is alive!"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
-# 機器人邏輯
-TOKEN = os.environ.get("DISCORD_TOKEN")
-CROSS_CHAT_CHANNELS = [int(cid) for cid in os.environ.get("CROSS_CHAT_CHANNELS", "").split(",") if cid]
-
+# 2. 機器人初始化
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.voice_states = True
-intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-@bot.event
-async def on_message(message):
-    if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
-        await bot.process_commands(message)
-        return
+# 抓取 Emoji 的正則表達式
+EMOJI_REGEX = re.compile(r'<a?:[a-zA-Z0-9_]+:([0-9]+)>')
 
-    # 針對目標頻道發送訊息
-    for channel_id in CROSS_CHAT_CHANNELS:
-        if channel_id != message.channel.id:
-            target_channel = bot.get_channel(channel_id)
-            if target_channel:
-                # 1. 取得或建立 Webhook
-                webhooks = await target_channel.webhooks()
-                # 尋找機器人自己創建的 Webhook
-                webhook = next((w for w in webhooks if w.name == "CrossChat"), None)
-                
-                if not webhook:
-                    # 如果沒有就建立一個
-                    webhook = await target_channel.create_webhook(name="CrossChat")
-                
-                # 2. 透過 Webhook 發送訊息 (模仿使用者頭像與名字)
-                await webhook.send(
-                    content=message.content,
-                    username=f"{message.author.display_name} ({message.guild.name})",
-                    avatar_url=message.author.avatar.url if message.author.avatar else None
-                )
-    
-    await bot.process_commands(message)
-
-# --- 語音投影邏輯 ---
-MY_ID = 1150359752359038986
-TARGET_VOICE_CHANNELS = [1349216822272065556, 1349216872138149888] # 柏仔群語音
-PROJECTION_CHANNEL_ID = 1517214446844645397 # 頻道 ID
-# 如果需要機器人加入的語音房，填入 ID，否則設為 None
-BOT_JOIN_CHANNEL_ID = 1515416118645493770
-
-# --- 時間頻道邏輯 ---
-TIME_CHANNEL_ID = 1246736970013741077
-
-# 建立一個每 15 秒檢查一次的任務
-@tasks.loop(seconds=15)
-async def check_my_status():
-    projection_channel = bot.get_channel(PROJECTION_CHANNEL_ID)
-    if not projection_channel:
-        return
-
-    found = False
-    # 遍歷機器人所在的「所有」伺服器，尋找你
-    for guild in bot.guilds:
-        member = guild.get_member(MY_ID)
-        if member and member.voice and member.voice.channel:
-            # 偵測到你在語音中！
-            count = len(member.voice.channel.members)
-            new_name = f"🔴｜瑪芬柏仔群 {count}人"
-            
-            if projection_channel.name != new_name:
-                await projection_channel.edit(name=new_name)
-            found = True
-            break
-    
-    # 如果所有伺服器都找不到你在語音
-    if not found:
-        if projection_channel.name != "🟢｜瑪芬在群裡":
-            await projection_channel.edit(name="🟢｜瑪芬在群裡")
-
-@tasks.loop(minutes=30)
-async def update_time_channel():
-    channel = bot.get_channel(TIME_CHANNEL_ID)
-    if not channel:
-        return
-
-    # 獲取當前小時 (注意：Render 的伺服器時間預設為 UTC，你可能需要 +8 小時調整為台灣時間)
-    # 如果發現時間不對，請將 now = datetime.utcnow().hour + 8 修改為適合的時區
-    now = datetime.utcnow().hour + 8
-    if now >= 24: now -= 24
-    
-    # 設定咖啡與啤酒的時段
-    # 假設 06:00 - 18:00 為咖啡時段，18:00 - 06:00 為啤酒時段
-    if 6 <= now < 18:
-        new_name = "☕｜來一杯咖啡"
-    else:
-        new_name = "🍺｜來一杯啤酒"
-
-    # 只有名字不同時才修改，避免 API 限制
-    if channel.name != new_name:
-        await channel.edit(name=new_name)
-
-# 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
-    print("機器人已啟動，開始監控投影...")
-    check_my_status.start()
-    if not update_time_channel.is_running():
-        update_time_channel.start()
+    print(f"機器人已上線：{bot.user}")
+    print("功能：!count_emojis 統計歷史 Emoji")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def count_emojis(ctx):
+    await ctx.send("⏳ 正在深層挖掘歷史數據，這可能需要幾分鐘，請稍候...")
+    
+    emoji_counts = Counter()
+    # 這裡抓的是伺服器內定義的所有自訂 Emoji
+    server_emojis = {str(e.id): e for e in ctx.guild.emojis}
+    
+    total_channels = len(ctx.guild.text_channels)
+    processed = 0
+    
+    # 遍歷所有文字頻道
+    for channel in ctx.guild.text_channels:
+        permissions = channel.permissions_for(ctx.guild.me)
+        if not permissions.read_message_history:
+            continue
+            
+        try:
+            # 遍歷該頻道所有歷史訊息
+            async for message in channel.history(limit=None):
+                if message.author.bot:
+                    continue
+                
+                # 抓取 Emoji ID
+                matches = EMOJI_REGEX.findall(message.content)
+                for emoji_id in matches:
+                    if emoji_id in server_emojis:
+                        emoji_counts[emoji_id] += 1
+        except Exception as e:
+            print(f"頻道 {channel.name} 統計異常: {e}")
+            
+        processed += 1
+        print(f"已處理 {processed}/{total_channels} 頻道...")
+
+    if not emoji_counts:
+        await ctx.send("❌ 沒有發現自訂 Emoji 的使用記錄。")
+        return
+
+    # 輸出排行榜 (取前 15 名)
+    top_emojis = emoji_counts.most_common(15)
+    result = "🏆 **自訂 Emoji 使用排行榜** 🏆\n"
+    for i, (eid, count) in enumerate(top_emojis, 1):
+        emoji = server_emojis[eid]
+        result += f"{i}. {emoji} `{emoji.name}`: **{count} 次**\n"
+        
+    await ctx.send(result)
 
 if __name__ == "__main__":
-    # 啟動 Web Server 線程
-    threading.Thread(target=run_web).start()
-    bot.run(TOKEN)
+    # 同時啟動 Web Server 和 Bot
+    threading.Thread(target=run_web, daemon=True).start()
+    bot.run(os.environ.get("DISCORD_TOKEN"))
