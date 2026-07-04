@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 import os
 import threading
+import random
 from datetime import datetime
 from flask import Flask
 
@@ -64,6 +65,28 @@ BOT_JOIN_CHANNEL_ID = 1515416118645493770
 # --- 時間頻道邏輯 ---
 TIME_CHANNEL_ID = 1246736970013741077
 
+# --- 每日音樂挑戰邏輯 ---
+MUSIC_CHANNEL_ID = 1414139681846857748
+MUSIC_THEMES = [
+# 語言分類主題
+    "中文歌 🇹🇼",
+    "英文歌 🇺🇸",
+    "日文歌 🇯🇵",
+    
+    # 情感與場景主題
+    "失戀時聽的歌 💔",
+    "以前最喜歡的歌 📻",
+    "最近循環播放的歌 🔁",
+    "冷門的歌 💎",
+    "讓你充滿能量的歌 ⚡",
+    "最適合在下雨天聽的歌 🌧️",
+    "你第一首聽的歌 🍼",
+    "最符合你現在心情的歌 💭",
+    "讓你想起過去的歌 🎞️",
+    "最適合在夏天聽的歌 ☀️",
+    "這生必聽的歌 ❤️"
+]
+
 # 建立一個每 15 秒檢查一次的任務
 @tasks.loop(seconds=15)
 async def check_my_status():
@@ -111,6 +134,27 @@ async def update_time_channel():
     # 只有名字不同時才修改，避免 API 限制
     if channel.name != new_name:
         await channel.edit(name=new_name)
+
+@bot.command()
+@commands.has_permissions(administrator=True) # 限制只有管理員能觸發
+async def music(ctx):
+    """手動觸發每日音樂挑戰"""
+    channel = bot.get_channel(MUSIC_CHANNEL_ID)
+    if not channel:
+        return await ctx.send("❌ 找不到設定的音樂頻道，請確認 ID 是否正確。")
+    
+    theme = random.choice(MUSIC_THEMES)
+    
+    embed = discord.Embed(
+        title="🎵 今日音樂挑戰主題",
+        description=f"今天的音樂主題是：\n\n**{theme}**\n\n快來傳送你的推薦歌曲，分享給大家！",
+        color=discord.Color.blue()
+    )
+    # 在指定頻道發送挑戰
+    await channel.send(embed=embed)
+    # 如果你在其他頻道輸入，則回饋一聲
+    if ctx.channel.id != MUSIC_CHANNEL_ID:
+        await ctx.send(f"✅ 已在 <#{MUSIC_CHANNEL_ID}> 發布音樂挑戰主題。")
 
 # 在 on_ready 啟動這個任務
 @bot.event
