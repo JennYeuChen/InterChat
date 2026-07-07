@@ -138,54 +138,69 @@ async def update_time_channel():
     if channel.name != new_name:
         await channel.edit(name=new_name)
 
+class MusicSelect(discord.ui.Select):
+    def __init__(self):
+        options = [discord.SelectOption(label=theme, value=theme) for theme in MUSIC_THEMES]
+        super().__init__(placeholder="請選擇今日的音樂主題...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f"🎵 已選擇主題：**{self.values[0]}**\n快分享你的音樂吧！", ephemeral=True)
+
 class MusicView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # 為每個主題建立按鈕
-        for theme in MUSIC_THEMES:
-            button = discord.ui.Button(label=theme, style=discord.ButtonStyle.primary, custom_id=theme)
-            button.callback = self.button_callback
-            self.add_item(button)
+        self.add_item(MusicSelect())
 
-    async def button_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"🎵 已選擇主題：**{interaction.data['custom_id']}**\n快分享你的音樂吧！", ephemeral=True)
-
-@bot.tree.command(name="music", description="發布每日音樂主題")
+@bot.tree.command(name="music", description="手動強制刷新音樂主題選單")
 @app_commands.checks.has_permissions(administrator=True)
 async def slash_music(interaction: discord.Interaction):
     global current_music_msg_id
     channel = bot.get_channel(MUSIC_CHANNEL_ID)
     
-    # 1. 清理舊訊息 (解鎖並刪除)
+    # 刪除舊訊息
     if current_music_msg_id:
         try:
             old_msg = await channel.fetch_message(current_music_msg_id)
-            await old_msg.unpin()
             await old_msg.delete()
         except: pass
 
-    # 2. 發送新選單
-    embed = discord.Embed(
-        title="🎵 每日一曲",
-        description="請選擇今日的音樂主題，分享你的歌：",
-        color=discord.Color.gold()
-    )
+    # 重發新訊息
+    embed = discord.Embed(title="🎵 每日一曲", description="請選擇今日的音樂主題，分享你的歌：", color=discord.Color.gold())
     new_msg = await channel.send(embed=embed, view=MusicView())
-    
-    # 3. 釘選最新訊息
-    await new_msg.pin()
     current_music_msg_id = new_msg.id
     
-    await interaction.response.send_message(f"✅ 已在 <#{MUSIC_CHANNEL_ID}> 發布並釘選每日一曲。", ephemeral=True)
+    await interaction.response.send_message("✅ 已強制刷新選單至音樂頻道。", ephemeral=True)
+
+@tasks.loop(seconds=30)
+async def keep_music_on_bottom():
+    global current_music_msg_id
+    channel = bot.get_channel(MUSIC_CHANNEL_ID)
+    if not channel: return
+
+    # 取得頻道最新的一則訊息
+    async for last_msg in channel.history(limit=1):
+        # 如果最後一則不是機器人自己，就執行重發邏輯
+        if last_msg.author.id != bot.user.id:
+            # 刪除舊的
+            try:
+                if current_music_msg_id:
+                    old_msg = await channel.fetch_message(current_music_msg_id)
+                    await old_msg.delete()
+            except: pass
+            
+            # 在底部重發
+            embed = discord.Embed(title="🎵 每日一曲", description="請選擇今日的音樂主題，分享你的歌：", color=discord.Color.gold())
+            new_msg = await channel.send(embed=embed, view=MusicView())
+            current_music_msg_id = new_msg.id
 
 # 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
-    print("機器人已啟動，開始監控投影...")
-    await bot.tree.sync()  # 同步斜線指令
+    print("機器人已啟動...")
+    await bot.tree.sync()
     check_my_status.start()
-    if not update_time_channel.is_running():
-        update_time_channel.start()
+    update_time_channel.start()
+    keep_music_on_bottom.start()  # 啟動底部檢測任務
 
 if __name__ == "__main__":
     # 啟動 Web Server 線程
