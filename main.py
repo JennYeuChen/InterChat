@@ -5,6 +5,7 @@ from discord import app_commands
 import os
 import threading
 import random
+import asyncio
 from datetime import datetime
 from flask import Flask
 
@@ -30,16 +31,18 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_message(message):
-    # 1. 處理音樂頻道的「自動表情反應」
-    if message.channel.id == MUSIC_CHANNEL_ID and not message.author.bot:
+    # 1. 處理指定頻道的「自動表情反應」
+    if message.channel.id in REACTION_CHANNELS and not message.author.bot:
         try:
-            # 加上 ❤️ 和 🗑️
-            await message.add_reaction("❤️")
-            await message.add_reaction("🗑️")
+            # 使用 await asyncio.gather 讓反應速度更快，不用一個一個等
+            await asyncio.gather(
+                message.add_reaction("❤️"),
+                message.add_reaction("🗑️")
+            )
         except discord.Forbidden:
-            print("機器人沒有在該頻道加入反應的權限")
+            print(f"機器人沒有在頻道 {message.channel.id} 新增反應的權限")
         except discord.HTTPException:
-            pass # 處理其他可能的網路錯誤
+            pass
 
     # 2. 原有的 CrossChat 邏輯
     if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
@@ -77,6 +80,8 @@ TIME_CHANNEL_ID = 1246736970013741077
 MUSIC_CHANNEL_ID = 1524036557948977152
 current_music_msg_id = None  # 音樂頻道中那則訊息的 ID
 current_active_theme = None   # 當前被選中的主題文字
+# 定義需要自動加入反應的頻道列表
+REACTION_CHANNELS = [1524036557948977152, 1508029438972137552]
 MUSIC_THEMES = [
 # 語言分類主題
     "中文歌 🇹🇼",
