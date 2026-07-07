@@ -30,25 +30,31 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_message(message):
+    # 1. 處理音樂頻道的「自動表情反應」
+    if message.channel.id == MUSIC_CHANNEL_ID and not message.author.bot:
+        try:
+            # 加上 ❤️ 和 🗑️
+            await message.add_reaction("❤️")
+            await message.add_reaction("🗑️")
+        except discord.Forbidden:
+            print("機器人沒有在該頻道加入反應的權限")
+        except discord.HTTPException:
+            pass # 處理其他可能的網路錯誤
+
+    # 2. 原有的 CrossChat 邏輯
     if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
         await bot.process_commands(message)
         return
 
-    # 針對目標頻道發送訊息
+    # 針對目標頻道發送訊息 (保留原有的 CrossChat 邏輯)
     for channel_id in CROSS_CHAT_CHANNELS:
         if channel_id != message.channel.id:
             target_channel = bot.get_channel(channel_id)
             if target_channel:
-                # 1. 取得或建立 Webhook
                 webhooks = await target_channel.webhooks()
-                # 尋找機器人自己創建的 Webhook
                 webhook = next((w for w in webhooks if w.name == "CrossChat"), None)
-                
                 if not webhook:
-                    # 如果沒有就建立一個
                     webhook = await target_channel.create_webhook(name="CrossChat")
-                
-                # 2. 透過 Webhook 發送訊息 (模仿使用者頭像與名字)
                 await webhook.send(
                     content=message.content,
                     username=f"{message.author.display_name} ({message.guild.name})",
