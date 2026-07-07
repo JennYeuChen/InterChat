@@ -1,5 +1,7 @@
 import discord
 from discord.ext import commands, tasks
+from discord.ui import Button, View
+from discord import app_commands
 import os
 import threading
 import random
@@ -66,7 +68,8 @@ BOT_JOIN_CHANNEL_ID = 1515416118645493770
 TIME_CHANNEL_ID = 1246736970013741077
 
 # --- 每日音樂挑戰邏輯 ---
-MUSIC_CHANNEL_ID = 1414139681846857748
+MUSIC_CHANNEL_ID = 1524036557948977152
+current_music_msg_id = None  # 用於追蹤最新的一則題目
 MUSIC_THEMES = [
 # 語言分類主題
     "中文歌 🇹🇼",
@@ -135,31 +138,51 @@ async def update_time_channel():
     if channel.name != new_name:
         await channel.edit(name=new_name)
 
-@bot.command()
-@commands.has_permissions(administrator=True) # 限制只有管理員能觸發
-async def music(ctx):
-    """手動觸發每日音樂挑戰"""
+class MusicView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        # 為每個主題建立按鈕
+        for theme in MUSIC_THEMES:
+            button = discord.ui.Button(label=theme, style=discord.ButtonStyle.primary, custom_id=theme)
+            button.callback = self.button_callback
+            self.add_item(button)
+
+    async def button_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f"🎵 已選擇主題：**{interaction.data['custom_id']}**\n快分享你的音樂吧！", ephemeral=True)
+
+@bot.tree.command(name="music", description="發布每日音樂主題")
+@app_commands.checks.has_permissions(administrator=True)
+async def slash_music(interaction: discord.Interaction):
+    global current_music_msg_id
     channel = bot.get_channel(MUSIC_CHANNEL_ID)
-    if not channel:
-        return await ctx.send("❌ 找不到設定的音樂頻道，請確認 ID 是否正確。")
     
-    theme = random.choice(MUSIC_THEMES)
-    
+    # 1. 清理舊訊息 (解鎖並刪除)
+    if current_music_msg_id:
+        try:
+            old_msg = await channel.fetch_message(current_music_msg_id)
+            await old_msg.unpin()
+            await old_msg.delete()
+        except: pass
+
+    # 2. 發送新選單
     embed = discord.Embed(
-        title="🎵 今日音樂挑戰主題",
-        description=f"今天的音樂主題是：\n\n**{theme}**\n\n快來傳送你的推薦歌曲，分享給大家！",
-        color=discord.Color.blue()
+        title="🎵 每日一曲",
+        description="請選擇今日的音樂主題，分享你的歌：",
+        color=discord.Color.gold()
     )
-    # 在指定頻道發送挑戰
-    await channel.send(embed=embed)
-    # 如果你在其他頻道輸入，則回饋一聲
-    if ctx.channel.id != MUSIC_CHANNEL_ID:
-        await ctx.send(f"✅ 已在 <#{MUSIC_CHANNEL_ID}> 發布音樂挑戰主題。")
+    new_msg = await channel.send(embed=embed, view=MusicView())
+    
+    # 3. 釘選最新訊息
+    await new_msg.pin()
+    current_music_msg_id = new_msg.id
+    
+    await interaction.response.send_message(f"✅ 已在 <#{MUSIC_CHANNEL_ID}> 發布並釘選每日一曲。", ephemeral=True)
 
 # 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
     print("機器人已啟動，開始監控投影...")
+    await bot.tree.sync()  # 同步斜線指令
     check_my_status.start()
     if not update_time_channel.is_running():
         update_time_channel.start()
