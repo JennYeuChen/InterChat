@@ -69,7 +69,8 @@ TIME_CHANNEL_ID = 1246736970013741077
 
 # --- 每日音樂挑戰邏輯 ---
 MUSIC_CHANNEL_ID = 1524036557948977152
-current_music_msg_id = None  # 用於追蹤最新的一則題目
+current_music_msg_id = None  # 音樂頻道中那則訊息的 ID
+current_active_theme = None   # 當前被選中的主題文字
 MUSIC_THEMES = [
 # 語言分類主題
     "中文歌 🇹🇼",
@@ -138,34 +139,77 @@ async def update_time_channel():
     if channel.name != new_name:
         await channel.edit(name=new_name)
 
+# 這是選單的回呼函式，負責更新主題並發送至音樂頻道
+async def update_music_display(channel_id, theme):
+    global current_music_msg_id, current_active_theme
+    current_active_theme = theme
+    channel = bot.get_channel(channel_id)
+    if not channel: return
+
+    # 刪除舊訊息
+    if current_music_msg_id:
+        try:
+            old_msg = await channel.fetch_message(current_music_msg_id)
+            await old_msg.delete()
+        except: pass
+
+    # 發送新的主題訊息 (無選單)
+    embed = discord.Embed(
+        title="🎵 今日音樂挑戰",
+        description=f"目前的主題是：\n\n**{theme}**\n\n快來分享你的歌曲！",
+        color=discord.Color.gold()
+    )
+    new_msg = await channel.send(embed=embed)
+    current_music_msg_id = new_msg.id
+
 class MusicSelect(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=theme, value=theme) for theme in MUSIC_THEMES]
         super().__init__(placeholder="請選擇今日的音樂主題...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        # 僅對點選者顯示 (ephemeral=True)，頻道內完全不會出現訊息
-        await interaction.response.send_message(f"🎵 已選定主題：**{self.values[0]}**\n請現在分享你的歌曲！", ephemeral=True)
+        # 1. 更新全域變數並通知音樂頻道
+        await update_music_display(MUSIC_CHANNEL_ID, self.values[0])
+        # 2. 回應發送指令的人
+        await interaction.response.send_message(f"✅ 已將主題更新為：**{self.values[0]}**", ephemeral=True)
 
 class MusicView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(MusicSelect())
 
-@bot.tree.command(name="music", description="在當前頻道發布音樂主題選單")
+@bot.tree.command(name="music", description="呼叫音樂主題選單")
 @app_commands.checks.has_permissions(administrator=True)
 async def slash_music(interaction: discord.Interaction):
-    # 直接在指令輸入的頻道發送選單
-    embed = discord.Embed(
-        title="🎵 每日一曲",
-        description="請選擇今日的音樂主題，分享你的歌：",
-        color=discord.Color.gold()
-    )
-    # 發送選單
-    await interaction.channel.send(embed=embed, view=MusicView())
+    # 選單直接在當前輸入指令的頻道發送
+    await interaction.response.send_message("請選擇今日音樂主題：", view=MusicView(), ephemeral=True)
+
+# 底部檢測任務 (負責維持音樂頻道乾淨)
+@tasks.loop(seconds=30)
+async def keep_music_on_bottom():
+    global current_music_msg_id, current_active_theme
+    # 如果還沒選過主題，就不要亂發訊息
+    if current_active_theme is None: return
     
-    # 指令發送成功後的短暫回饋 (僅管理員可見)
-    await interaction.response.send_message("✅ 選單已發送。", ephemeral=True)
+    channel = bot.get_channel(MUSIC_CHANNEL_ID)
+    if not channel: return
+
+    async for last_msg in channel.history(limit=1):
+        # 如果最後一則不是機器人，就重發當前主題
+        if last_msg.author.id != bot.user.id:
+            try:
+                if current_music_msg_id:
+                    old_msg = await channel.fetch_message(current_music_msg_id)
+                    await old_msg.delete()
+            except: pass
+            
+            embed = discord.Embed(
+                title="🎵 今日音樂挑戰",
+                description=f"目前的主題是：\n\n**{current_active_theme}**\n\n快來分享你的歌曲！",
+                color=discord.Color.gold()
+            )
+            new_msg = await channel.send(embed=embed)
+            current_music_msg_id = new_msg.id
 
 # 在 on_ready 啟動這個任務
 @bot.event
@@ -174,6 +218,7 @@ async def on_ready():
     await bot.tree.sync()
     check_my_status.start()
     update_time_channel.start()
+    keep_music_on_bottom.start()  # 啟動底部檢測任務
 
 if __name__ == "__main__":
     # 啟動 Web Server 線程
