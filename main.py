@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 from discord.ui import Button, View
 from discord import app_commands
 import os
+import json
 import threading
 import random
 import asyncio
@@ -21,6 +22,8 @@ def run_web():
 # 機器人邏輯
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CROSS_CHAT_CHANNELS = [int(cid) for cid in os.environ.get("CROSS_CHAT_CHANNELS", "").split(",") if cid]
+DATA_FOLDER = "data"
+os.makedirs(DATA_FOLDER, exist_ok=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -28,6 +31,57 @@ intents.members = True
 intents.voice_states = True
 intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- 🔰 等級系統區塊 (新加入) ---
+# 確保資料檔案存在
+LEVEL_DATA_FILE = os.path.join(DATA_FOLDER, "user_levels.json")
+
+# 載入等級資料
+def load_level_data():
+    if os.path.exists(LEVEL_DATA_FILE):
+        with open(LEVEL_DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+user_levels = load_level_data()
+
+# 儲存等級資料
+def save_level_data():
+    with open(LEVEL_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(user_levels, f, indent=4, ensure_ascii=False)
+
+def get_level_info(exp):
+    """根據經驗值計算等級：Lv = 經驗值開根號的 0.2 倍"""
+    level = int(0.2 * (exp ** 0.5)) + 1
+    return level
+
+async def handle_leveling(message):
+    uid = str(message.author.id)
+    if uid not in user_levels:
+        user_levels[uid] = {"exp": 0, "level": 1}
+    
+    # 每則訊息增加 10 經驗值 (可隨意調整)
+    old_level = user_levels[uid]["level"]
+    user_levels[uid]["exp"] += 10
+    new_level = get_level_info(user_levels[uid]["exp"])
+    
+    if new_level > old_level:
+        user_levels[uid]["level"] = new_level
+        save_level_data() # 永久儲存
+        await message.channel.send(f"🎉 恭喜 {message.author.mention} 升級了！現在是 **Lv.{new_level}**！")
+    else:
+        user_levels[uid]["level"] = new_level
+        save_level_data()
+
+# --- 查詢指令 !level ---
+@bot.command(name="level")
+async def show_level(ctx):
+    uid = str(ctx.author.id)
+    data = user_levels.get(uid, {"exp": 0, "level": 1})
+    embed = discord.Embed(title=f"🆙 {ctx.author.display_name} 的等級資訊", color=discord.Color.blue())
+    embed.add_field(name="等級", value=f"Lv.{data['level']}", inline=True)
+    embed.add_field(name="累計經驗值", value=f"{data['exp']} EXP", inline=True)
+    await ctx.send(embed=embed)
 
 @bot.event
 async def on_message(message):
@@ -43,6 +97,10 @@ async def on_message(message):
             print(f"機器人沒有在頻道 {message.channel.id} 新增反應的權限")
         except discord.HTTPException:
             pass
+
+    # 1.5. 等級系統處理 (只要不是機器人說的話都會加經驗)
+    if not message.author.bot:
+        await handle_leveling(message)
 
     # 2. 原有的 CrossChat 邏輯
     if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
