@@ -78,26 +78,20 @@ async def track_activity(message):
     
     save_level_data()
 
-# --- 斜線指令：查詢等級 ---
+# --- 修正後的 slash_level 指令 (移除圖像進度條) ---
 @bot.tree.command(name="level", description="查詢指定用戶的等級與發言狀況")
 @app_commands.describe(member="要查詢的對象（預設為自己）")
 async def slash_level(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
     uid = str(target.id)
+    # 確保讀取資料時有預設值
     data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
     
     level = get_level_info(data["total_msg"])
     
-    # 計算進度條 (每 5 則訊息一格，總共 10 格)
-    green_count = min((data["total_msg"] % 50) // 5, 10)
-    red_count = 10 - green_count
-    
-    # 強制加入空格
-    bar = ("🟢" * green_count) + " " + ("🔴" * red_count)
-    
     embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.blurple())
-    embed.add_field(name=f"等級進度 (Lv.{level})", value=bar, inline=False)
-    # 加入空格並確保格式統一
+    embed.add_field(name="目前等級", value=f"Lv. {level}", inline=False)
+    # 這裡確保了 emoji 與數字之間有空格
     embed.add_field(name="今日發言", value=f"💬  `{data.get('daily_msg', 0)}` 則", inline=True)
     embed.add_field(name="累計發言", value=f"📚  `{data.get('total_msg', 0)}` 則", inline=True)
     
