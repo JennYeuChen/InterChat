@@ -84,7 +84,7 @@ async def slash_level(interaction: discord.Interaction, member: discord.Member =
     target = member or interaction.user
     uid = str(target.id)
     # 確保讀取資料時有預設值
-    data = await get_user_data(uid)
+    data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
     
     level = get_level_info(data["total_msg"])
     
@@ -99,10 +99,7 @@ async def slash_level(interaction: discord.Interaction, member: discord.Member =
 # --- 斜線指令：查詢伺服器今日總發言量 ---
 @bot.tree.command(name="server_stats", description="查詢伺服器今日總發言量")
 async def server_stats(interaction: discord.Interaction):
-    total_today = 0
-    # 從資料庫取得所有用戶的 daily_msg 並加總
-    async for user in levels_col.find({}, {"daily_msg": 1}):
-        total_today += user.get("daily_msg", 0)
+    total_today = sum(user.get("daily_msg", 0) for user in user_levels.values())
     embed = discord.Embed(title="📈 伺服器今日戰報", description=f"今日全體成員共發送了 **{total_today}** 則訊息！", color=discord.Color.gold())
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
@@ -110,8 +107,9 @@ async def server_stats(interaction: discord.Interaction):
 @bot.tree.command(name="reset_levels", description="[管理員] 重置所有用戶的等級與經驗值")
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_all_levels(interaction: discord.Interaction):
-    # 清空整個集合
-    await levels_col.delete_many({})
+    global user_levels
+    user_levels = {}
+    save_level_data()
     await interaction.response.send_message("✅ 已成功重置所有人的等級資料庫。", ephemeral=True)
 
 # --- 斜線指令：重置今日統計 (管理員專用) ---
@@ -119,8 +117,10 @@ async def reset_all_levels(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_daily(interaction: discord.Interaction):
     today = datetime.now().strftime("%Y-%m-%d")
-    # 更新所有用戶的 daily_msg 和 last_date
-    await levels_col.update_many({}, {"$set": {"daily_msg": 0, "last_date": today}})
+    for uid in user_levels:
+        user_levels[uid]["daily_msg"] = 0
+        user_levels[uid]["last_date"] = today
+    save_level_data()
     await interaction.response.send_message("✅ 今日發言統計已歸零。", ephemeral=False)
 
 @bot.event
