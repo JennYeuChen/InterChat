@@ -9,6 +9,7 @@ import random
 import asyncio
 from datetime import datetime
 from flask import Flask
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # Flask 網頁伺服器，用來維持 Render 活躍
 app = Flask(__name__)
@@ -22,8 +23,23 @@ def run_web():
 # 機器人邏輯
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CROSS_CHAT_CHANNELS = [int(cid) for cid in os.environ.get("CROSS_CHAT_CHANNELS", "").split(",") if cid]
-DATA_FOLDER = "data"
-os.makedirs(DATA_FOLDER, exist_ok=True)
+
+# 設定 MongoDB 連線 (從 Railway 的環境變數取得)
+MONGO_URI = os.environ.get("MONGO_URI")
+client = AsyncIOMotorClient(MONGO_URI)
+db = client.bot_database  # 資料庫名稱
+levels_col = db.user_levels  # 集合名稱
+
+# 載入數據：直接從資料庫查詢 (不需讀取檔案)
+async def get_user_data(uid):
+    data = await levels_col.find_one({"uid": uid})
+    if data:
+        return data
+    return {"uid": uid, "total_msg": 0, "daily_msg": 0, "last_date": datetime.now().strftime("%Y-%m-%d")}
+
+# 儲存數據：更新到資料庫
+async def save_user_data(uid, data):
+    await levels_col.update_one({"uid": uid}, {"$set": data}, upsert=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -31,22 +47,6 @@ intents.members = True
 intents.voice_states = True
 intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# --- 🔰 全新等級系統 (斜線指令版) ---
-LEVEL_DATA_FILE = os.path.join(DATA_FOLDER, "user_levels.json")
-
-# 載入等級資料
-def load_level_data():
-    if os.path.exists(LEVEL_DATA_FILE):
-        with open(LEVEL_DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-user_levels = load_level_data()
-
-def save_level_data():
-    with open(LEVEL_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(user_levels, f, indent=4, ensure_ascii=False)
 
 # 修改等級邏輯：直接以總訊息量決定等級
 def get_level_info(total_msg):
@@ -58,25 +58,24 @@ async def track_activity(message):
     uid = str(message.author.id)
     today = datetime.now().strftime("%Y-%m-%d")
 
-    if uid not in user_levels:
-        user_levels[uid] = {"total_msg": 0, "daily_msg": 0, "last_date": today}
+    data = await get_user_data(uid)
     
     # 每日重置
-    if user_levels[uid].get("last_date") != today:
-        user_levels[uid]["daily_msg"] = 0
-        user_levels[uid]["last_date"] = today
+    if data.get("last_date") != today:
+        data["daily_msg"] = 0
+        data["last_date"] = today
     
-    user_levels[uid]["total_msg"] += 1
-    user_levels[uid]["daily_msg"] += 1
+    data["total_msg"] += 1
+    data["daily_msg"] += 1
     
     # 檢查升級 (不需要紀錄 exp 了)
-    new_level = get_level_info(user_levels[uid]["total_msg"])
-    old_level = get_level_info(user_levels[uid]["total_msg"] - 1)
+    new_level = get_level_info(data["total_msg"])
+    old_level = get_level_info(data["total_msg"] - 1)
     
     if new_level > old_level:
         await message.channel.send(f"🎉 恭喜 {message.author.mention} 升級至 **Lv.{new_level}**！")
     
-    save_level_data()
+    await save_user_data(uid, data)
 
 # --- 修正後的 slash_level 指令 (移除圖像進度條) ---
 @bot.tree.command(name="level", description="查詢指定用戶的等級與發言狀況")
@@ -85,7 +84,7 @@ async def slash_level(interaction: discord.Interaction, member: discord.Member =
     target = member or interaction.user
     uid = str(target.id)
     # 確保讀取資料時有預設值
-    data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
+    data = await get_user_data(uid)
     
     level = get_level_info(data["total_msg"])
     
@@ -100,7 +99,10 @@ async def slash_level(interaction: discord.Interaction, member: discord.Member =
 # --- 斜線指令：查詢伺服器今日總發言量 ---
 @bot.tree.command(name="server_stats", description="查詢伺服器今日總發言量")
 async def server_stats(interaction: discord.Interaction):
-    total_today = sum(user.get("daily_msg", 0) for user in user_levels.values())
+    total_today = 0
+    # 從資料庫取得所有用戶的 daily_msg 並加總
+    async for user in levels_col.find({}, {"daily_msg": 1}):
+        total_today += user.get("daily_msg", 0)
     embed = discord.Embed(title="📈 伺服器今日戰報", description=f"今日全體成員共發送了 **{total_today}** 則訊息！", color=discord.Color.gold())
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
@@ -108,9 +110,8 @@ async def server_stats(interaction: discord.Interaction):
 @bot.tree.command(name="reset_levels", description="[管理員] 重置所有用戶的等級與經驗值")
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_all_levels(interaction: discord.Interaction):
-    global user_levels
-    user_levels = {}
-    save_level_data()
+    # 清空整個集合
+    await levels_col.delete_many({})
     await interaction.response.send_message("✅ 已成功重置所有人的等級資料庫。", ephemeral=True)
 
 # --- 斜線指令：重置今日統計 (管理員專用) ---
@@ -118,10 +119,8 @@ async def reset_all_levels(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def reset_daily(interaction: discord.Interaction):
     today = datetime.now().strftime("%Y-%m-%d")
-    for uid in user_levels:
-        user_levels[uid]["daily_msg"] = 0
-        user_levels[uid]["last_date"] = today
-    save_level_data()
+    # 更新所有用戶的 daily_msg 和 last_date
+    await levels_col.update_many({}, {"$set": {"daily_msg": 0, "last_date": today}})
     await interaction.response.send_message("✅ 今日發言統計已歸零。", ephemeral=False)
 
 @bot.event
