@@ -48,32 +48,32 @@ def save_level_data():
     with open(LEVEL_DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(user_levels, f, indent=4, ensure_ascii=False)
 
-# 計算等級的公式
-def get_level_info(exp):
-    level = int(0.2 * (exp ** 0.5)) + 1
-    return level
+# 修改等級邏輯：直接以總訊息量決定等級
+def get_level_info(total_msg):
+    # 每 50 則訊息升一級
+    return (total_msg // 50) + 1
 
-# --- 在 on_message 中處理數據 ---
-async def add_exp_on_message(message):
+# 修改 add_exp_on_message (改名為 track_activity)
+async def track_activity(message):
     uid = str(message.author.id)
     today = datetime.now().strftime("%Y-%m-%d")
 
     if uid not in user_levels:
-        user_levels[uid] = {"exp": 0, "level": 1, "total_msg": 0, "daily_msg": 0, "last_date": today}
+        user_levels[uid] = {"total_msg": 0, "daily_msg": 0, "last_date": today}
     
-    # 每日重置判斷
+    # 每日重置
     if user_levels[uid].get("last_date") != today:
         user_levels[uid]["daily_msg"] = 0
         user_levels[uid]["last_date"] = today
     
-    # 累計數據
     user_levels[uid]["total_msg"] += 1
     user_levels[uid]["daily_msg"] += 1
-    user_levels[uid]["exp"] += 10 # 每一則訊息 +10 經驗
     
-    new_level = get_level_info(user_levels[uid]["exp"])
-    if new_level > user_levels[uid]["level"]:
-        user_levels[uid]["level"] = new_level
+    # 檢查升級 (不需要紀錄 exp 了)
+    new_level = get_level_info(user_levels[uid]["total_msg"])
+    old_level = get_level_info(user_levels[uid]["total_msg"] - 1)
+    
+    if new_level > old_level:
         await message.channel.send(f"🎉 恭喜 {message.author.mention} 升級至 **Lv.{new_level}**！")
     
     save_level_data()
@@ -84,33 +84,26 @@ async def add_exp_on_message(message):
 async def slash_level(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
     uid = str(target.id)
-    data = user_levels.get(uid, {"exp": 0, "level": 1, "total_msg": 0, "daily_msg": 0})
+    data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
     
-    # 計算升級所需經驗和進度條
-    current_exp = data["exp"]
-    current_level = data["level"]
+    level = get_level_info(data["total_msg"])
+    progress = (data["total_msg"] % 50) // 5 # 每 5 則訊息顯示一個綠點
+    bar = "🟢" * progress + "🔴" * (10 - progress)
     
-    # 根據公式反推下一級所需的總經驗
-    # level = 0.2 * sqrt(exp) + 1
-    # exp = ((level - 1) / 0.2) ^ 2
-    next_level_exp = int(((current_level) / 0.2) ** 2)
-    current_level_base_exp = int(((current_level - 1) / 0.2) ** 2) if current_level > 1 else 0
-    exp_in_current_level = current_exp - current_level_base_exp
-    exp_needed = next_level_exp - current_level_base_exp
-    
-    # 製作簡易進度條
-    if exp_needed > 0:
-        progress = int((exp_in_current_level / exp_needed) * 10)
-    else:
-        progress = 10
-    bar = "█" * progress + "░" * (10 - progress)
-    
-    embed = discord.Embed(title=f"📊 {target.display_name} 的數據面板", color=discord.Color.green())
-    embed.add_field(name="等級進度", value=f"Lv.{data['level']}\n[{bar}] {exp_in_current_level}/{exp_needed} EXP", inline=False)
+    embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.green())
+    embed.add_field(name="等級進度", value=f"Lv.{level}\n{bar}", inline=False)
     embed.add_field(name="今日發言", value=f"`{data.get('daily_msg', 0)}` 則", inline=True)
     embed.add_field(name="累計發言", value=f"`{data.get('total_msg', 0)}` 則", inline=True)
     
-    # 改為 ephemeral=False 讓大家都能看到
+    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+# --- 斜線指令：查詢伺服器今日總發言量 ---
+@bot.tree.command(name="server_stats", description="查詢伺服器今日總發言量")
+async def server_stats(interaction: discord.Interaction):
+    total_today = sum(user.get("daily_msg", 0) for user in user_levels.values())
+    
+    embed = discord.Embed(title="📈 伺服器今日戰報", color=discord.Color.gold())
+    embed.description = f"今日全體成員共發送了 **{total_today}** 則訊息！"
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
 # --- 斜線指令：重置所有人的經驗 (管理員專用) ---
@@ -150,7 +143,7 @@ async def on_message(message):
 
     # 1.5. 等級系統處理 (只要不是機器人說的話都會加經驗)
     if not message.author.bot:
-        await add_exp_on_message(message)
+        await track_activity(message)
 
     # 2. 原有的 CrossChat 邏輯
     if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
