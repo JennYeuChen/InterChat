@@ -32,8 +32,7 @@ intents.voice_states = True
 intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 🔰 等級系統區塊 (新加入) ---
-# 確保資料檔案存在
+# --- 🔰 全新等級系統 (斜線指令版) ---
 LEVEL_DATA_FILE = os.path.join(DATA_FOLDER, "user_levels.json")
 
 # 載入等級資料
@@ -45,43 +44,52 @@ def load_level_data():
 
 user_levels = load_level_data()
 
-# 儲存等級資料
 def save_level_data():
     with open(LEVEL_DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(user_levels, f, indent=4, ensure_ascii=False)
 
+# 計算等級的公式
 def get_level_info(exp):
-    """根據經驗值計算等級：Lv = 經驗值開根號的 0.2 倍"""
     level = int(0.2 * (exp ** 0.5)) + 1
     return level
 
-async def handle_leveling(message):
+# --- 在 on_message 中處理經驗累計 ---
+# 注意：這裡只累計經驗，不發送訊息，保持頻道安靜
+async def add_exp_on_message(message):
     uid = str(message.author.id)
     if uid not in user_levels:
         user_levels[uid] = {"exp": 0, "level": 1}
     
-    # 每則訊息增加 10 經驗值 (可隨意調整)
-    old_level = user_levels[uid]["level"]
-    user_levels[uid]["exp"] += 10
+    user_levels[uid]["exp"] += 10 # 每則訊息 +10 EXP
     new_level = get_level_info(user_levels[uid]["exp"])
     
-    if new_level > old_level:
+    if new_level > user_levels[uid]["level"]:
         user_levels[uid]["level"] = new_level
-        save_level_data() # 永久儲存
-        await message.channel.send(f"🎉 恭喜 {message.author.mention} 升級了！現在是 **Lv.{new_level}**！")
-    else:
-        user_levels[uid]["level"] = new_level
-        save_level_data()
+        # 升級時才發送恭喜訊息
+        await message.channel.send(f"🎉 {message.author.mention} 升級至 **Lv.{new_level}**！")
+    
+    save_level_data()
 
-# --- 查詢指令 !level ---
-@bot.command(name="level")
-async def show_level(ctx):
-    uid = str(ctx.author.id)
+# --- 斜線指令：查詢等級 ---
+@bot.tree.command(name="level", description="查詢你的當前等級與經驗值")
+async def slash_level(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
     data = user_levels.get(uid, {"exp": 0, "level": 1})
-    embed = discord.Embed(title=f"🆙 {ctx.author.display_name} 的等級資訊", color=discord.Color.blue())
-    embed.add_field(name="等級", value=f"Lv.{data['level']}", inline=True)
+    
+    embed = discord.Embed(title=f"🆙 {interaction.user.display_name} 的等級資訊", color=discord.Color.blue())
+    embed.add_field(name="目前等級", value=f"Lv.{data['level']}", inline=True)
     embed.add_field(name="累計經驗值", value=f"{data['exp']} EXP", inline=True)
-    await ctx.send(embed=embed)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# --- 斜線指令：重置所有人的經驗 (管理員專用) ---
+@bot.tree.command(name="reset_levels", description="[管理員] 重置所有用戶的等級與經驗值")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_all_levels(interaction: discord.Interaction):
+    global user_levels
+    user_levels = {}
+    save_level_data()
+    await interaction.response.send_message("✅ 已成功重置所有人的等級資料庫。", ephemeral=True)
 
 @bot.event
 async def on_message(message):
@@ -100,7 +108,7 @@ async def on_message(message):
 
     # 1.5. 等級系統處理 (只要不是機器人說的話都會加經驗)
     if not message.author.bot:
-        await handle_leveling(message)
+        await add_exp_on_message(message)
 
     # 2. 原有的 CrossChat 邏輯
     if message.author.bot or message.channel.id not in CROSS_CHAT_CHANNELS:
