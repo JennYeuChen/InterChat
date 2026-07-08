@@ -53,34 +53,65 @@ def get_level_info(exp):
     level = int(0.2 * (exp ** 0.5)) + 1
     return level
 
-# --- 在 on_message 中處理經驗累計 ---
-# 注意：這裡只累計經驗，不發送訊息，保持頻道安靜
+# --- 在 on_message 中處理數據 ---
 async def add_exp_on_message(message):
     uid = str(message.author.id)
+    today = datetime.now().strftime("%Y-%m-%d")
+
     if uid not in user_levels:
-        user_levels[uid] = {"exp": 0, "level": 1}
+        user_levels[uid] = {"exp": 0, "level": 1, "total_msg": 0, "daily_msg": 0, "last_date": today}
     
-    user_levels[uid]["exp"] += 10 # 每則訊息 +10 EXP
+    # 每日重置判斷
+    if user_levels[uid].get("last_date") != today:
+        user_levels[uid]["daily_msg"] = 0
+        user_levels[uid]["last_date"] = today
+    
+    # 累計數據
+    user_levels[uid]["total_msg"] += 1
+    user_levels[uid]["daily_msg"] += 1
+    user_levels[uid]["exp"] += 10 # 每一則訊息 +10 經驗
+    
     new_level = get_level_info(user_levels[uid]["exp"])
-    
     if new_level > user_levels[uid]["level"]:
         user_levels[uid]["level"] = new_level
-        # 升級時才發送恭喜訊息
-        await message.channel.send(f"🎉 {message.author.mention} 升級至 **Lv.{new_level}**！")
+        await message.channel.send(f"🎉 恭喜 {message.author.mention} 升級至 **Lv.{new_level}**！")
     
     save_level_data()
 
 # --- 斜線指令：查詢等級 ---
-@bot.tree.command(name="level", description="查詢你的當前等級與經驗值")
-async def slash_level(interaction: discord.Interaction):
-    uid = str(interaction.user.id)
-    data = user_levels.get(uid, {"exp": 0, "level": 1})
+@bot.tree.command(name="level", description="查詢指定用戶的等級與發言狀況")
+@app_commands.describe(member="要查詢的對象（預設為自己）")
+async def slash_level(interaction: discord.Interaction, member: discord.Member = None):
+    target = member or interaction.user
+    uid = str(target.id)
+    data = user_levels.get(uid, {"exp": 0, "level": 1, "total_msg": 0, "daily_msg": 0})
     
-    embed = discord.Embed(title=f"🆙 {interaction.user.display_name} 的等級資訊", color=discord.Color.blue())
-    embed.add_field(name="目前等級", value=f"Lv.{data['level']}", inline=True)
-    embed.add_field(name="累計經驗值", value=f"{data['exp']} EXP", inline=True)
+    # 計算升級所需經驗和進度條
+    current_exp = data["exp"]
+    current_level = data["level"]
     
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    # 根據公式反推下一級所需的總經驗
+    # level = 0.2 * sqrt(exp) + 1
+    # exp = ((level - 1) / 0.2) ^ 2
+    next_level_exp = int(((current_level) / 0.2) ** 2)
+    current_level_base_exp = int(((current_level - 1) / 0.2) ** 2) if current_level > 1 else 0
+    exp_in_current_level = current_exp - current_level_base_exp
+    exp_needed = next_level_exp - current_level_base_exp
+    
+    # 製作簡易進度條
+    if exp_needed > 0:
+        progress = int((exp_in_current_level / exp_needed) * 10)
+    else:
+        progress = 10
+    bar = "█" * progress + "░" * (10 - progress)
+    
+    embed = discord.Embed(title=f"📊 {target.display_name} 的數據面板", color=discord.Color.green())
+    embed.add_field(name="等級進度", value=f"Lv.{data['level']}\n[{bar}] {exp_in_current_level}/{exp_needed} EXP", inline=False)
+    embed.add_field(name="今日發言", value=f"`{data.get('daily_msg', 0)}` 則", inline=True)
+    embed.add_field(name="累計發言", value=f"`{data.get('total_msg', 0)}` 則", inline=True)
+    
+    # 改為 ephemeral=False 讓大家都能看到
+    await interaction.response.send_message(embed=embed, ephemeral=False)
 
 # --- 斜線指令：重置所有人的經驗 (管理員專用) ---
 @bot.tree.command(name="reset_levels", description="[管理員] 重置所有用戶的等級與經驗值")
@@ -90,6 +121,17 @@ async def reset_all_levels(interaction: discord.Interaction):
     user_levels = {}
     save_level_data()
     await interaction.response.send_message("✅ 已成功重置所有人的等級資料庫。", ephemeral=True)
+
+# --- 斜線指令：重置今日統計 (管理員專用) ---
+@bot.tree.command(name="reset_daily", description="[管理員] 重置所有人的今日發言統計")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_daily(interaction: discord.Interaction):
+    today = datetime.now().strftime("%Y-%m-%d")
+    for uid in user_levels:
+        user_levels[uid]["daily_msg"] = 0
+        user_levels[uid]["last_date"] = today
+    save_level_data()
+    await interaction.response.send_message("✅ 今日發言統計已歸零。", ephemeral=False)
 
 @bot.event
 async def on_message(message):
