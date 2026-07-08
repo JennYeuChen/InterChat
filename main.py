@@ -84,21 +84,22 @@ async def track_activity(message):
 async def slash_level(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
     uid = str(target.id)
-    # 確保讀取資料時有預設值
     data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
     
     level = get_level_info(data["total_msg"])
     
-    # 計算進度：每 5 則訊息顯示一個綠點，滿 10 個綠點即升級
+    # 計算進度條 (每 5 則訊息一格，總共 10 格)
     green_count = min((data["total_msg"] % 50) // 5, 10)
     red_count = 10 - green_count
-    # 這裡明確加入了空格 " "
+    
+    # 明確定義：🟢 是綠色，🔴 是紅色，中間留一個空格
     bar = ("🟢" * green_count) + " " + ("🔴" * red_count)
     
-    embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.green())
-    embed.add_field(name="等級進度", value=f"Lv.{level}\n{bar}", inline=False)
-    embed.add_field(name="今日發言", value=f"`{data.get('daily_msg', 0)}` 則", inline=True)
-    embed.add_field(name="累計發言", value=f"`{data.get('total_msg', 0)}` 則", inline=True)
+    # 顏色改為 blurple，避免與綠色 Emoji 混淆
+    embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.blurple())
+    embed.add_field(name=f"等級進度 (Lv.{level})", value=bar, inline=False)
+    embed.add_field(name="今日發言", value=f"💬 `{data.get('daily_msg', 0)}` 則", inline=True)
+    embed.add_field(name="累計發言", value=f"📚 `{data.get('total_msg', 0)}` 則", inline=True)
     
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
@@ -106,9 +107,7 @@ async def slash_level(interaction: discord.Interaction, member: discord.Member =
 @bot.tree.command(name="server_stats", description="查詢伺服器今日總發言量")
 async def server_stats(interaction: discord.Interaction):
     total_today = sum(user.get("daily_msg", 0) for user in user_levels.values())
-    
-    embed = discord.Embed(title="📈 伺服器今日戰報", color=discord.Color.gold())
-    embed.description = f"今日全體成員共發送了 **{total_today}** 則訊息！"
+    embed = discord.Embed(title="📈 伺服器今日戰報", description=f"今日全體成員共發送了 **{total_today}** 則訊息！", color=discord.Color.gold())
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
 # --- 斜線指令：重置所有人的經驗 (管理員專用) ---
@@ -331,8 +330,11 @@ async def keep_music_on_bottom():
 # 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
-    print("機器人已啟動...")
-    await bot.tree.sync()
+    print("機器人已啟動，正在同步指令...")
+    # 將這行改成這樣，可以讓你看到指令是否同步成功
+    synced = await bot.tree.sync()
+    print(f"已同步 {len(synced)} 個斜線指令: {[cmd.name for cmd in synced]}")
+    
     check_my_status.start()
     update_time_channel.start()
     keep_music_on_bottom.start()  # 啟動底部檢測任務
