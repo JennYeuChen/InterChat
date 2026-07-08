@@ -92,14 +92,14 @@ async def slash_level(interaction: discord.Interaction, member: discord.Member =
     green_count = min((data["total_msg"] % 50) // 5, 10)
     red_count = 10 - green_count
     
-    # 明確定義：🟢 是綠色，🔴 是紅色，中間留一個空格
+    # 強制加入空格
     bar = ("🟢" * green_count) + " " + ("🔴" * red_count)
     
-    # 顏色改為 blurple，避免與綠色 Emoji 混淆
     embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.blurple())
     embed.add_field(name=f"等級進度 (Lv.{level})", value=bar, inline=False)
-    embed.add_field(name="今日發言", value=f"💬 `{data.get('daily_msg', 0)}` 則", inline=True)
-    embed.add_field(name="累計發言", value=f"📚 `{data.get('total_msg', 0)}` 則", inline=True)
+    # 加入空格並確保格式統一
+    embed.add_field(name="今日發言", value=f"💬  `{data.get('daily_msg', 0)}` 則", inline=True)
+    embed.add_field(name="累計發言", value=f"📚  `{data.get('total_msg', 0)}` 則", inline=True)
     
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
