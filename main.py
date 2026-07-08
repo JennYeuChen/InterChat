@@ -9,7 +9,6 @@ import random
 import asyncio
 from datetime import datetime
 from flask import Flask
-from motor.motor_asyncio import AsyncIOMotorClient
 
 # Flask 網頁伺服器，用來維持 Render 活躍
 app = Flask(__name__)
@@ -23,23 +22,8 @@ def run_web():
 # 機器人邏輯
 TOKEN = os.environ.get("DISCORD_TOKEN")
 CROSS_CHAT_CHANNELS = [int(cid) for cid in os.environ.get("CROSS_CHAT_CHANNELS", "").split(",") if cid]
-
-# 設定 MongoDB 連線 (從 Railway 的環境變數取得)
-MONGO_URI = os.environ.get("MONGO_URI")
-client = AsyncIOMotorClient(MONGO_URI)
-db = client.bot_database  # 資料庫名稱
-levels_col = db.user_levels  # 集合名稱
-
-# 載入數據：直接從資料庫查詢 (不需讀取檔案)
-async def get_user_data(uid):
-    data = await levels_col.find_one({"uid": uid})
-    if data:
-        return data
-    return {"uid": uid, "total_msg": 0, "daily_msg": 0, "last_date": datetime.now().strftime("%Y-%m-%d")}
-
-# 儲存數據：更新到資料庫
-async def save_user_data(uid, data):
-    await levels_col.update_one({"uid": uid}, {"$set": data}, upsert=True)
+DATA_FOLDER = "data"
+os.makedirs(DATA_FOLDER, exist_ok=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,6 +31,22 @@ intents.members = True
 intents.voice_states = True
 intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- 🔰 全新等級系統 (斜線指令版) ---
+LEVEL_DATA_FILE = os.path.join(DATA_FOLDER, "user_levels.json")
+
+# 載入等級資料
+def load_level_data():
+    if os.path.exists(LEVEL_DATA_FILE):
+        with open(LEVEL_DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+user_levels = load_level_data()
+
+def save_level_data():
+    with open(LEVEL_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(user_levels, f, indent=4, ensure_ascii=False)
 
 # 修改等級邏輯：直接以總訊息量決定等級
 def get_level_info(total_msg):
@@ -58,41 +58,48 @@ async def track_activity(message):
     uid = str(message.author.id)
     today = datetime.now().strftime("%Y-%m-%d")
 
-    data = await get_user_data(uid)
+    if uid not in user_levels:
+        user_levels[uid] = {"total_msg": 0, "daily_msg": 0, "last_date": today}
     
     # 每日重置
-    if data.get("last_date") != today:
-        data["daily_msg"] = 0
-        data["last_date"] = today
+    if user_levels[uid].get("last_date") != today:
+        user_levels[uid]["daily_msg"] = 0
+        user_levels[uid]["last_date"] = today
     
-    data["total_msg"] += 1
-    data["daily_msg"] += 1
+    user_levels[uid]["total_msg"] += 1
+    user_levels[uid]["daily_msg"] += 1
     
     # 檢查升級 (不需要紀錄 exp 了)
-    new_level = get_level_info(data["total_msg"])
-    old_level = get_level_info(data["total_msg"] - 1)
+    new_level = get_level_info(user_levels[uid]["total_msg"])
+    old_level = get_level_info(user_levels[uid]["total_msg"] - 1)
     
     if new_level > old_level:
         await message.channel.send(f"🎉 恭喜 {message.author.mention} 升級至 **Lv.{new_level}**！")
     
-    await save_user_data(uid, data)
+    save_level_data()
 
-# --- 修正後的 slash_level 指令 (移除圖像進度條) ---
+# --- 斜線指令：查詢等級 ---
 @bot.tree.command(name="level", description="查詢指定用戶的等級與發言狀況")
 @app_commands.describe(member="要查詢的對象（預設為自己）")
 async def slash_level(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
     uid = str(target.id)
-    # 確保讀取資料時有預設值
     data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
     
     level = get_level_info(data["total_msg"])
     
+    # 計算進度條 (每 5 則訊息一格，總共 10 格)
+    green_count = min((data["total_msg"] % 50) // 5, 10)
+    red_count = 10 - green_count
+    
+    # 明確定義：🟢 是綠色，🔴 是紅色，中間留一個空格
+    bar = ("🟢" * green_count) + " " + ("🔴" * red_count)
+    
+    # 顏色改為 blurple，避免與綠色 Emoji 混淆
     embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.blurple())
-    embed.add_field(name="目前等級", value=f"Lv. {level}", inline=False)
-    # 這裡確保了 emoji 與數字之間有空格
-    embed.add_field(name="今日發言", value=f"💬  `{data.get('daily_msg', 0)}` 則", inline=True)
-    embed.add_field(name="累計發言", value=f"📚  `{data.get('total_msg', 0)}` 則", inline=True)
+    embed.add_field(name=f"等級進度 (Lv.{level})", value=bar, inline=False)
+    embed.add_field(name="今日發言", value=f"💬 `{data.get('daily_msg', 0)}` 則", inline=True)
+    embed.add_field(name="累計發言", value=f"📚 `{data.get('total_msg', 0)}` 則", inline=True)
     
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
