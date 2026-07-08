@@ -84,14 +84,15 @@ async def track_activity(message):
 async def slash_level(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
     uid = str(target.id)
+    # 確保讀取資料時有預設值
     data = user_levels.get(uid, {"total_msg": 0, "daily_msg": 0})
     
     level = get_level_info(data["total_msg"])
     
-    # 修正：確保綠色 (🟢) 在前，紅色 (🔴) 在後，中間用空格隔開
-    # 每 5 則訊息顯示一個綠點，最多 10 格 (對應 50 則訊息)
+    # 計算進度：每 5 則訊息顯示一個綠點，滿 10 個綠點即升級
     green_count = min((data["total_msg"] % 50) // 5, 10)
     red_count = 10 - green_count
+    # 這裡明確加入了空格 " "
     bar = ("🟢" * green_count) + " " + ("🔴" * red_count)
     
     embed = discord.Embed(title=f"📊 {target.display_name} 的活躍面板", color=discord.Color.green())
