@@ -197,16 +197,12 @@ async def slash_music(interaction: discord.Interaction):
     # 選單直接在當前輸入指令的頻道發送
     await interaction.response.send_message("請選擇今日音樂主題：", view=MusicView(), ephemeral=True)
 
-@bot.tree.command(name="setup_roles", description="[管理員] 發送純淨的身分組領取面板")
+@bot.tree.command(name="setup_roles", description="[管理員] 發送純淨的身分組按鈕")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_roles(interaction: discord.Interaction):
-    # 使用一個空白的 Embed 或直接發送一個標題
-    embed = discord.Embed(
-        title="🔔 訂閱中心",
-        color=discord.Color.dark_grey()
-    )
-    # 移除原本的 description，讓訊息保持最簡潔
-    await interaction.channel.send(embed=embed, view=RoleSetupView())
+    # 直接發送 view，不發送 embed 或任何文字內容
+    await interaction.channel.send(view=RoleSetupView())
+    # 回應指令發送者（只有自己看得到）
     await interaction.response.send_message("✅ 面板已發送。", ephemeral=True)
 
 # 底部檢測任務 (負責維持音樂頻道乾淨)
