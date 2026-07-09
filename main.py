@@ -188,6 +188,26 @@ async def keep_music_on_bottom():
             new_msg = await channel.send(embed=embed)
             current_music_msg_id = new_msg.id
 
+# --- 自動愛心反應邏輯 ---
+@bot.event
+async def on_message(message):
+    # 避免機器人自己回應自己
+    if message.author == bot.user:
+        return
+
+    # 檢查是否在目標頻道內
+    if message.channel.id in REACTION_CHANNELS:
+        try:
+            await message.add_reaction("❤️")
+        except discord.Forbidden:
+            print(f"權限不足：無法在頻道 {message.channel.id} 添加反應")
+        except Exception as e:
+            print(f"添加反應時發生錯誤: {e}")
+
+    # 因為你用了 bot.command，若要讓斜線指令正常運作，
+    # 必須在最後面加上這行，否則其他指令會失效
+    await bot.process_commands(message)
+
 # 在 on_ready 啟動這個任務
 @bot.event
 async def on_ready():
