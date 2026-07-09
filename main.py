@@ -59,9 +59,9 @@ ROLE_MAP = {
 }
 
 class RoleButton(discord.ui.Button):
-    def __init__(self, role_id, role_name):
-        # 按鈕改為 ❌，風格改為 Danger (紅色)
-        super().__init__(label=role_name, style=discord.ButtonStyle.danger, emoji="❌", custom_id=f"role_{role_id}")
+    def __init__(self, emoji, role_id, role_name):
+        # 按鈕顯示文字直接設為身分組名稱
+        super().__init__(label=role_name, style=discord.ButtonStyle.secondary, emoji=emoji, custom_id=f"role_{role_id}")
         self.role_id = role_id
 
     async def callback(self, interaction: discord.Interaction):
@@ -69,43 +69,20 @@ class RoleButton(discord.ui.Button):
         if not role:
             return await interaction.response.send_message("❌ 找不到該身分組。", ephemeral=True)
         
-        # 切換身分組狀態
-        action = ""
         if role in interaction.user.roles:
             await interaction.user.remove_roles(role)
-            action = f"已移除 {role.name} 通知"
+            await interaction.response.send_message(f"✅ 已取消 **{role.name}** 通知。", ephemeral=True)
         else:
             await interaction.user.add_roles(role)
-            action = f"已領取 {role.name} 通知"
-
-        # 整理身分組清單
-        role_ids = [1524619988923584563, 1524618968180985916, 1524619035990298775, 1524619113463414967, 1524619170111819961]
-        all_roles = {rid: interaction.guild.get_role(rid) for rid in role_ids if interaction.guild.get_role(rid)}
-        
-        owned = [r.name for rid, r in all_roles.items() if r in interaction.user.roles]
-        not_owned = [r.name for rid, r in all_roles.items() if r not in interaction.user.roles]
-        
-        # 顯示結果
-        embed = discord.Embed(title="🔔 訂閱狀態更新", color=discord.Color.green())
-        embed.description = f"{action}\n\n"
-        embed.add_field(name="✅ 已擁有", value="\n".join(owned) if owned else "無", inline=False)
-        embed.add_field(name="❌ 未領取", value="\n".join(not_owned) if not_owned else "無", inline=False)
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(f"✅ 已訂閱 **{role.name}** 通知。", ephemeral=True)
 
 class RoleSetupView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # 對應的 ID 與名稱
-        role_data = [
-            (1524619988923584563, "投票通知"),
-            (1524618968180985916, "福利通知"),
-            (1524619035990298775, "活動通知"),
-            (1524619113463414967, "每日一曲通知"),
-            (1524619170111819961, "每日一問通知")
-        ]
-        for rid, name in role_data:
-            self.add_item(RoleButton(rid, name))
+        # 這裡將名稱傳入，直接對應顯示
+        names = ["投票通知", "福利通知", "活動通知", "每日一曲通知", "每日一問通知"]
+        for i, (emoji, role_id) in enumerate(ROLE_MAP.items()):
+            self.add_item(RoleButton(emoji, role_id, names[i]))
 
 MUSIC_THEMES = [
 # 語言分類主題
