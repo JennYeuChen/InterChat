@@ -59,8 +59,9 @@ ROLE_MAP = {
 }
 
 class RoleButton(discord.ui.Button):
-    def __init__(self, emoji, role_id):
-        super().__init__(label="切換通知", style=discord.ButtonStyle.secondary, emoji=emoji, custom_id=f"role_{role_id}")
+    def __init__(self, emoji, role_id, role_name):
+        # 按鈕顯示文字直接設為身分組名稱
+        super().__init__(label=role_name, style=discord.ButtonStyle.secondary, emoji=emoji, custom_id=f"role_{role_id}")
         self.role_id = role_id
 
     async def callback(self, interaction: discord.Interaction):
@@ -68,19 +69,20 @@ class RoleButton(discord.ui.Button):
         if not role:
             return await interaction.response.send_message("❌ 找不到該身分組。", ephemeral=True)
         
-        # 如果已有該身分組，就移除；沒有則給予
         if role in interaction.user.roles:
             await interaction.user.remove_roles(role)
-            await interaction.response.send_message(f"✅ 已關閉 {role.name} 通知。", ephemeral=True)
+            await interaction.response.send_message(f"✅ 已取消 **{role.name}** 通知。", ephemeral=True)
         else:
             await interaction.user.add_roles(role)
-            await interaction.response.send_message(f"✅ 已開啟 {role.name} 通知。", ephemeral=True)
+            await interaction.response.send_message(f"✅ 已訂閱 **{role.name}** 通知。", ephemeral=True)
 
 class RoleSetupView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # 讓按鈕永久有效
-        for emoji, role_id in ROLE_MAP.items():
-            self.add_item(RoleButton(emoji, role_id))
+        super().__init__(timeout=None)
+        # 這裡將名稱傳入，直接對應顯示
+        names = ["投票通知", "福利通知", "活動通知", "每日一曲通知", "每日一問通知"]
+        for i, (emoji, role_id) in enumerate(ROLE_MAP.items()):
+            self.add_item(RoleButton(emoji, role_id, names[i]))
 
 MUSIC_THEMES = [
 # 語言分類主題
@@ -195,21 +197,17 @@ async def slash_music(interaction: discord.Interaction):
     # 選單直接在當前輸入指令的頻道發送
     await interaction.response.send_message("請選擇今日音樂主題：", view=MusicView(), ephemeral=True)
 
-@bot.tree.command(name="setup_roles", description="[管理員] 發送身分組選擇面板")
+@bot.tree.command(name="setup_roles", description="[管理員] 發送純淨的身分組領取面板")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_roles(interaction: discord.Interaction):
+    # 使用一個空白的 Embed 或直接發送一個標題
     embed = discord.Embed(
-        title="🔔 訂閱與身分組通知",
-        description="點擊下方按鈕來切換你的通知權限：\n\n"
-                    "📊｜投票通知\n"
-                    "🎁｜福利通知\n"
-                    "🎉｜活動通知\n"
-                    "🎸｜每日一曲通知\n"
-                    "❓｜每日一問通知",
-        color=discord.Color.blue()
+        title="🔔 訂閱中心",
+        color=discord.Color.dark_grey()
     )
+    # 移除原本的 description，讓訊息保持最簡潔
     await interaction.channel.send(embed=embed, view=RoleSetupView())
-    await interaction.response.send_message("✅ 身分組面板已發送。", ephemeral=True)
+    await interaction.response.send_message("✅ 面板已發送。", ephemeral=True)
 
 # 底部檢測任務 (負責維持音樂頻道乾淨)
 @tasks.loop(seconds=30)
