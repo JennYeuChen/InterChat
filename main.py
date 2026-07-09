@@ -71,10 +71,10 @@ class RoleButton(discord.ui.Button):
         
         if role in interaction.user.roles:
             await interaction.user.remove_roles(role)
-            await interaction.response.send_message(f"❌ 已取消 **{role.name}** 通知。", ephemeral=True)
+            await interaction.response.send_message(f"❌ 已取消 **{role.name}**", ephemeral=True)
         else:
             await interaction.user.add_roles(role)
-            await interaction.response.send_message(f"✅ 已訂閱 **{role.name}** 通知。", ephemeral=True)
+            await interaction.response.send_message(f"✅ 已領取 **{role.name}**", ephemeral=True)
 
 class RoleSetupView(discord.ui.View):
     def __init__(self):
