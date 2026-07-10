@@ -71,10 +71,10 @@ class RoleButton(discord.ui.Button):
         
         if role in interaction.user.roles:
             await interaction.user.remove_roles(role)
-            await interaction.response.send_message(f"❌ 已取消 **{role.name}**", ephemeral=True)
+            await interaction.response.send_message(f"✅ 已取消 **{role.name}** 通知。", ephemeral=True)
         else:
             await interaction.user.add_roles(role)
-            await interaction.response.send_message(f"✅ 已領取 **{role.name}**", ephemeral=True)
+            await interaction.response.send_message(f"✅ 已訂閱 **{role.name}** 通知。", ephemeral=True)
 
 class RoleSetupView(discord.ui.View):
     def __init__(self):
@@ -239,6 +239,13 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    # 更新每日訊息計數
+    user_id = str(message.author.id)
+    if user_id not in user_levels:
+        user_levels[user_id] = {"daily_msg": 0, "level": 1, "total_msg": 0}
+    user_levels[user_id]["daily_msg"] += 1
+    user_levels[user_id]["total_msg"] += 1
+
     # 檢查是否在目標頻道內
     if message.channel.id in REACTION_CHANNELS:
         try:
@@ -262,6 +269,9 @@ async def on_ready():
     
     bot.add_view(RoleSetupView())
     print("身分組按鈕視圖已加載。")
+    
+    # 啟動統計更新任務
+    update_stats_channels.start()
     
     check_my_status.start()
     update_time_channel.start()
