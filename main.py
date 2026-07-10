@@ -163,14 +163,14 @@ async def update_stats_channels():
     member_channel = bot.get_channel(1525140695533355129)
     if member_channel:
         count = member_channel.guild.member_count
-        try: await member_channel.edit(name=f"👥｜總成員：{count}")
+        try: await member_channel.edit(name=f"👥｜成員：{count}")
         except: pass
 
     # 更新今日訊息頻道
     msg_channel = bot.get_channel(1525140760012390631)
     if msg_channel:
         total_today = sum(user.get("daily_msg", 0) for user in user_levels.values())
-        try: await msg_channel.edit(name=f"💬｜今日發言：{total_today}")
+        try: await msg_channel.edit(name=f"💬｜訊息：{total_today}")
         except: pass
 
 # 這是選單的回呼函式，負責更新主題並發送至音樂頻道
