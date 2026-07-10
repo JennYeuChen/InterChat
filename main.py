@@ -42,6 +42,11 @@ BOT_JOIN_CHANNEL_ID = 1515416118645493770
 # --- 時間頻道邏輯 ---
 TIME_CHANNEL_ID = 1246736970013741077
 
+# --- 統計頻道邏輯 ---
+STATS_MEMBER_CHANNEL_ID = 1525140695533355129  # 統計人數
+STATS_MSG_CHANNEL_ID = 1525140760012390631      # 統計今天訊息
+user_levels = {}  # 存儲使用者等級與每日訊息計數
+
 # --- 每日音樂挑戰邏輯 ---
 MUSIC_CHANNEL_ID = 1524036557948977152
 current_music_msg_id = None  # 音樂頻道中那則訊息的 ID
@@ -151,6 +156,22 @@ async def update_time_channel():
     # 只有名字不同時才修改，避免 API 限制
     if channel.name != new_name:
         await channel.edit(name=new_name)
+
+@tasks.loop(minutes=2) 
+async def update_stats_channels():
+    # 更新成員人數頻道
+    member_channel = bot.get_channel(1525140695533355129)
+    if member_channel:
+        count = member_channel.guild.member_count
+        try: await member_channel.edit(name=f"👥｜總成員：{count}")
+        except: pass
+
+    # 更新今日訊息頻道
+    msg_channel = bot.get_channel(1525140760012390631)
+    if msg_channel:
+        total_today = sum(user.get("daily_msg", 0) for user in user_levels.values())
+        try: await msg_channel.edit(name=f"💬｜今日發言：{total_today}")
+        except: pass
 
 # 這是選單的回呼函式，負責更新主題並發送至音樂頻道
 async def update_music_display(channel_id, theme):
