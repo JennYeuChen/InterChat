@@ -271,29 +271,35 @@ async def on_message(message):
     if message.channel.id == GAME_CHANNEL_ID:
         content = message.content.strip()
         
-        # 如果不是純數字，無視
+        # 除錯：確認機器人有收到訊息
+        print(f"收到頻道 {message.channel.id} 訊息: {content}")
+
         if not content.isdigit():
-            pass
-        else:
-            guess = int(content)
+            return
+
+        guess = int(content)
+        
+        # 檢查邏輯
+        is_correct = (guess == game_data["current_number"] + 1)
+        is_not_last_user = (message.author.id != game_data["last_user_id"])
+        
+        if is_correct and is_not_last_user:
+            game_data["current_number"] = guess
+            game_data["last_user_id"] = message.author.id
             
-            # 邏輯檢查
-            is_correct = (guess == game_data["current_number"] + 1)
-            is_not_last_user = (message.author.id != game_data["last_user_id"])
-            
-            if is_correct and is_not_last_user:
-                # 接龍正確
-                game_data["current_number"] = guess
-                game_data["last_user_id"] = message.author.id
+            # 加入 try-except 捕捉權限錯誤
+            try:
                 await message.add_reaction("✅")
-            else:
-                # 接龍失敗 (數錯或是連發)
-                reason = "自己連續接龍" if not is_not_last_user else "數錯了"
-                await message.channel.send(f"{message.author.mention} 你他媽這個白癡連數數都不會 ({reason})！")
-                # 重置遊戲
-                game_data["current_number"] = 0
-                game_data["last_user_id"] = None
-                await message.channel.send("遊戲重置，從 1 開始。")
+            except discord.Forbidden:
+                print("❌ 錯誤：機器人沒有『新增反應』權限")
+            except Exception as e:
+                print(f"❌ 錯誤：無法添加反應: {e}")
+        else:
+            reason = "自己連續接龍" if not is_not_last_user else "數錯了"
+            await message.channel.send(f"{message.author.mention} 你他媽這個白癡連數數都不會 ({reason})！")
+            game_data["current_number"] = 0
+            game_data["last_user_id"] = None
+            await message.channel.send("遊戲重置，從 1 開始。")
 
     # 更新每日訊息計數
     user_id = str(message.author.id)
