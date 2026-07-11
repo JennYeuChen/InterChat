@@ -295,8 +295,21 @@ async def on_message(message):
             except Exception as e:
                 print(f"❌ 錯誤：無法添加反應: {e}")
         else:
+            # 接龍失敗 (數錯或是連發)
             reason = "自己連續接龍" if not is_not_last_user else "數錯了"
+            
+            # --- 新增：加上失敗反應 ---
+            try:
+                # 這裡加入你要求的 Emoji
+                await message.add_reaction("❌")
+                await message.add_reaction("🖕")
+            except Exception as e:
+                print(f"❌ 無法添加失敗反應: {e}")
+
+            # 發送辱罵訊息
             await message.channel.send(f"{message.author.mention} 你他媽這個白癡連數數都不會 ({reason})！")
+            
+            # 重置遊戲
             game_data["current_number"] = 0
             game_data["last_user_id"] = None
             await message.channel.send("遊戲重置，從 1 開始。")
