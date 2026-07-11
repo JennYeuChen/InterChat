@@ -298,24 +298,43 @@ async def on_message(message):
             # 判斷錯誤原因
             is_not_last_user = (message.author.id != game_data["last_user_id"])
             
+            # --- 隨機罵人清單 ---
+            wrong_number_insults = [
+                "瞎啊？傻逼一個",
+                "眼睛不要可以捐了",
+                "幹你娘怎麼會數錯",
+                "需要幫你掛號眼科嗎"
+            ]
+            
+            double_tap_insults = [
+                "不能連續數兩次好嗎",
+                "你人格分裂喔數兩次",
+                "是是是你一個人佔了兩個座位"
+            ]
+            
+            general_insults = [
+                "北七欸！",
+                "喔呦你很討厭欸 😳",
+                "唉呀討厭啦 😳"
+            ]
+
             # --- 反應與回覆 ---
             try:
                 await message.add_reaction("❌")
                 await message.add_reaction("🖕")
             except: pass
 
-            # 針對不同錯誤發送不同辱罵訊息 (使用 reply 回覆該則訊息)
-            if not is_not_last_user:
-                await message.reply(f"{message.author.mention} 操你媽就說了不能自己連續數兩次")
-            else:
-                await message.reply(f"{message.author.mention} 瞎啊？傻逼一個")
+            # 選擇語句
+            chosen_insult = random.choice(wrong_number_insults) if is_not_last_user else random.choice(double_tap_insults)
+            additional_insult = random.choice(general_insults)
             
-            # 重置遊戲
+            # 使用 reply 回覆該則訊息
+            await message.reply(f"{message.author.mention} {chosen_insult} {additional_insult}")
+            
+            # 重置遊戲 (包含你要求的 Emoji)
             game_data["current_number"] = 0
             game_data["last_user_id"] = None
-            
-            # 額外提示重置
-            await message.channel.send("遊戲重置，從 1 開始。")
+            await message.channel.send("🔄️ 遊戲重置，從 1 開始。")
 
     # 更新每日訊息計數
     user_id = str(message.author.id)
