@@ -29,8 +29,15 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.voice_states = True
-intents.presences = True
+intents.presence = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# 數字接龍資料 (記憶體版，重啟會歸零)
+game_data = {
+    "current_number": 0,
+    "last_user_id": None
+}
+GAME_CHANNEL_ID = 1509571882301788270
 
 # --- 語音投影邏輯 ---
 MY_ID = 1150359752359038986
@@ -259,6 +266,34 @@ async def on_message(message):
     # 避免機器人自己回應自己
     if message.author == bot.user:
         return
+
+    # --- 數字接龍邏輯 ---
+    if message.channel.id == GAME_CHANNEL_ID:
+        content = message.content.strip()
+        
+        # 如果不是純數字，無視
+        if not content.isdigit():
+            pass
+        else:
+            guess = int(content)
+            
+            # 邏輯檢查
+            is_correct = (guess == game_data["current_number"] + 1)
+            is_not_last_user = (message.author.id != game_data["last_user_id"])
+            
+            if is_correct and is_not_last_user:
+                # 接龍正確
+                game_data["current_number"] = guess
+                game_data["last_user_id"] = message.author.id
+                await message.add_reaction("✅")
+            else:
+                # 接龍失敗 (數錯或是連發)
+                reason = "自己連續接龍" if not is_not_last_user else "數錯了"
+                await message.channel.send(f"{message.author.mention} 你他媽這個白癡連數數都不會 ({reason})！")
+                # 重置遊戲
+                game_data["current_number"] = 0
+                game_data["last_user_id"] = None
+                await message.channel.send("遊戲重置，從 1 開始。")
 
     # 更新每日訊息計數
     user_id = str(message.author.id)
