@@ -29,7 +29,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.voice_states = True
-intents.presence = True
+intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # 數字接龍資料 (記憶體版，重啟會歸零)
@@ -37,7 +37,7 @@ game_data = {
     "current_number": 0,
     "last_user_id": None
 }
-GAME_CHANNEL_ID = 1509571882301788270
+GAME_CHANNEL_ID = 1418474416198782987
 
 # --- 語音投影邏輯 ---
 MY_ID = 1150359752359038986
