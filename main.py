@@ -70,6 +70,9 @@ ROLE_MAP = {
     "❓": 1524619170111819961
 }
 
+# 限制級身分組 ID
+NSFW_ROLE_ID = 1526260476986527775
+
 class RoleButton(discord.ui.Button):
     def __init__(self, emoji, role_id, role_name):
         # 按鈕顯示文字直接設為身分組名稱
@@ -95,6 +98,27 @@ class RoleSetupView(discord.ui.View):
         names = ["投票通知", "福利通知", "活動通知", "每日一曲通知", "每日一問通知"]
         for i, (emoji, role_id) in enumerate(ROLE_MAP.items()):
             self.add_item(RoleButton(emoji, role_id, names[i]))
+
+class NSFWRoleButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="限制級頻道權限", style=discord.ButtonStyle.danger, emoji="🔞", custom_id="nsfw_role_toggle")
+
+    async def callback(self, interaction: discord.Interaction):
+        role = interaction.guild.get_role(NSFW_ROLE_ID)
+        if not role:
+            return await interaction.response.send_message("❌ 找不到限制級身分組。", ephemeral=True)
+        
+        if role in interaction.user.roles:
+            await interaction.user.remove_roles(role)
+            await interaction.response.send_message("🔞 已關閉限制級頻道權限。", ephemeral=True)
+        else:
+            await interaction.user.add_roles(role)
+            await interaction.response.send_message("🔞 已開啟限制級頻道權限。", ephemeral=True)
+
+class NSFWSetupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(NSFWRoleButton())
 
 MUSIC_THEMES = [
 # 語言分類主題
@@ -233,6 +257,12 @@ async def setup_roles(interaction: discord.Interaction):
     # 回應指令發送者（只有自己看得到）
     await interaction.response.send_message("✅ 面板已發送。", ephemeral=True)
 
+@bot.tree.command(name="setup_nsfw", description="[管理員] 發送限制級身分組開關")
+@app_commands.checks.has_permissions(administrator=True)
+async def setup_nsfw(interaction: discord.Interaction):
+    await interaction.channel.send("點擊下方按鈕以切換你的限制級頻道進入權限：", view=NSFWSetupView())
+    await interaction.response.send_message("✅ 限制級面板已發送。", ephemeral=True)
+
 # 底部檢測任務 (負責維持音樂頻道乾淨)
 @tasks.loop(seconds=30)
 async def keep_music_on_bottom():
@@ -363,8 +393,9 @@ async def on_ready():
     synced = await bot.tree.sync()
     print(f"已同步 {len(synced)} 個斜線指令: {[cmd.name for cmd in synced]}")
     
-    bot.add_view(RoleSetupView())
-    print("身分組按鈕視圖已加載。")
+    bot.add_view(RoleSetupView())   # 原本的通知面板
+    bot.add_view(NSFWSetupView())   # 新增的限制級面板
+    print("所有身分組按鈕視圖已加載。")
     
     # 啟動統計更新任務
     update_stats_channels.start()
