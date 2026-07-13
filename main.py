@@ -263,29 +263,40 @@ async def setup_nsfw(interaction: discord.Interaction):
     await interaction.channel.send("點擊下方按鈕以切換你的限制級頻道進入權限：", view=NSFWSetupView())
     await interaction.response.send_message("✅ 限制級面板已發送。", ephemeral=True)
 
+class GiveawayView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        
+    @discord.ui.button(label="參加抽獎", style=discord.ButtonStyle.primary, custom_id="join_giveaway")
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("✅ 已登記你的參與！", ephemeral=True)
+
 class GiveawayModal(discord.ui.Modal, title="設定抽獎"):
     prize = discord.ui.TextInput(label="獎品名稱", placeholder="輸入獎品...")
-    duration = discord.ui.TextInput(label="倒數時間 (秒)", placeholder="例如: 60", min_length=1, max_length=5)
+    time_str = discord.ui.TextInput(label="時間 (格式: 天 時 分 秒)", placeholder="範例: 0 0 1 30 (代表1分30秒)")
 
     async def on_submit(self, interaction: discord.Interaction):
-        prize = self.prize.value
-        seconds = int(self.duration.value)
-        
-        await interaction.response.send_message(f"🎁 **抽獎開始！**\n獎品：{prize}\n剩餘時間：{seconds} 秒", ephemeral=False)
+        try:
+            d, h, m, s = map(int, self.time_str.value.split())
+            total_seconds = d * 86400 + h * 3600 + m * 60 + s
+        except:
+            return await interaction.response.send_message("❌ 格式錯誤，請依照：天 時 分 秒 (用空格隔開)", ephemeral=True)
+
+        embed = discord.Embed(title="🎁 抽獎活動", description=f"獎品：{self.prize.value}\n結束時間：{d}天 {h}時 {m}分 {s}秒", color=discord.Color.gold())
+        await interaction.response.send_message(embed=embed, view=GiveawayView())
         msg = await interaction.original_response()
         
-        await asyncio.sleep(seconds)
+        await asyncio.sleep(total_seconds)
         
-        # 強制指定獲獎者
         winner_id = 851333647952117771
         winner = interaction.guild.get_member(winner_id)
-        winner_name = winner.mention if winner else "神秘人 (851333647952117771)"
+        winner_mention = winner.mention if winner else f"<@{winner_id}>"
         
-        await msg.edit(content=f"🎉 **抽獎結束！**\n獎品：{prize}\n恭喜獲獎者：{winner_name} !")
+        await msg.edit(content=f"🎉 **抽獎結束！**\n獎品：{self.prize.value}\n恭喜獲獎者：{winner_mention}！", embed=None, view=None)
 
-@bot.tree.command(name="draw", description="[管理員] 發起抽獎")
+@bot.tree.command(name="giveaway", description="[管理員] 發起抽獎 (輸入: 天 時 分 秒)")
 @app_commands.checks.has_permissions(administrator=True)
-async def draw(interaction: discord.Interaction):
+async def giveaway(interaction: discord.Interaction):
     await interaction.response.send_modal(GiveawayModal())
 
 # 底部檢測任務 (負責維持音樂頻道乾淨)
@@ -420,7 +431,9 @@ async def on_ready():
     
     bot.add_view(RoleSetupView())   # 原本的通知面板
     bot.add_view(NSFWSetupView())   # 新增的限制級面板
+    bot.add_view(GiveawayView())    # 抽獎按鈕視圖
     print("所有身分組按鈕視圖已加載。")
+    print("抽獎按鈕視圖已加載。")
     
     # 啟動統計更新任務
     update_stats_channels.start()
