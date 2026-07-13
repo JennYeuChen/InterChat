@@ -263,6 +263,31 @@ async def setup_nsfw(interaction: discord.Interaction):
     await interaction.channel.send("點擊下方按鈕以切換你的限制級頻道進入權限：", view=NSFWSetupView())
     await interaction.response.send_message("✅ 限制級面板已發送。", ephemeral=True)
 
+class GiveawayModal(discord.ui.Modal, title="設定抽獎"):
+    prize = discord.ui.TextInput(label="獎品名稱", placeholder="輸入獎品...")
+    duration = discord.ui.TextInput(label="倒數時間 (秒)", placeholder="例如: 60", min_length=1, max_length=5)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        prize = self.prize.value
+        seconds = int(self.duration.value)
+        
+        await interaction.response.send_message(f"🎁 **抽獎開始！**\n獎品：{prize}\n剩餘時間：{seconds} 秒", ephemeral=False)
+        msg = await interaction.original_response()
+        
+        await asyncio.sleep(seconds)
+        
+        # 強制指定獲獎者
+        winner_id = 851333647952117771
+        winner = interaction.guild.get_member(winner_id)
+        winner_name = winner.mention if winner else "神秘人 (851333647952117771)"
+        
+        await msg.edit(content=f"🎉 **抽獎結束！**\n獎品：{prize}\n恭喜獲獎者：{winner_name} !")
+
+@bot.tree.command(name="draw", description="[管理員] 發起抽獎")
+@app_commands.checks.has_permissions(administrator=True)
+async def draw(interaction: discord.Interaction):
+    await interaction.response.send_modal(GiveawayModal())
+
 # 底部檢測任務 (負責維持音樂頻道乾淨)
 @tasks.loop(seconds=30)
 async def keep_music_on_bottom():
