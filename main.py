@@ -360,46 +360,45 @@ async def on_message(message):
                 print("❌ 錯誤：機器人沒有『新增反應』權限")
             except Exception as e:
                 print(f"❌ 錯誤：無法添加反應: {e}")
-        else:
-            # 判斷錯誤原因
-            is_not_last_user = (message.author.id != game_data["last_user_id"])
-            
-            # --- 嘲諷清單 ---
-            wrong_number_insults = [
-                "瞎啊？傻逼一個",
-                "眼睛不要可以捐了",
-                "幹你娘怎麼會數錯",
-                "需要幫你掛號眼科嗎",
-                "北七欸！",
-                "喔呦你很討厭欸 😳",
-                "唉呀討厭啦 😳"
-            ]
-            
-            double_tap_insults = [
-                "不能連續數兩次好嗎",
-                "你人格分裂喔數兩次",
-                "是是是你一個人佔了兩個座位",
-                "北七欸！",
-                "喔呦你很討厭欸 😳",
-                "唉呀討厭啦 😳"
-            ]
-
-            # --- 反應與回覆 ---
-            try:
-                await message.add_reaction("❌")
-                await message.add_reaction("🖕")
-            except: pass
-
-            # 根據錯誤類型選擇一個語句（從對應清單中隨機抽取）
-            chosen_msg = random.choice(wrong_number_insults) if is_not_last_user else random.choice(double_tap_insults)
-            
-            # 使用 reply 回覆該則訊息
-            await message.reply(f"{message.author.mention} {chosen_msg}")
-            
-            # 重置遊戲
-            game_data["current_number"] = 0
-            game_data["last_user_id"] = None
-            await message.channel.send("🔄️ 遊戲重置，從 1 開始。")
+        else : 
+            # 判斷錯誤原因 
+            is_not_last_user = (message.author.id != game_data["last_user_id" ]) 
+             
+            # --- 嘲諷清單 --- 
+            wrong_number_insults = ["瞎啊？傻逼一個", "眼睛不要可以捐了", "幹你娘怎麼會數錯", "需要幫你掛號眼科嗎", "北七欸！", "喔呦你很討厭欸 😳", "唉呀討厭啦 😳" ] 
+            double_tap_insults = ["不能連續數兩次好嗎", "你人格分裂喔數兩次", "是是是你一個人佔了兩個座位", "北七欸！", "喔呦你很討厭欸 😳", "唉呀討厭啦 😳" ] 
+ 
+            # --- 反應 --- 
+            try : 
+                await message.add_reaction("❌" ) 
+                await message.add_reaction("🖕" ) 
+            except: pass 
+ 
+            # --- 禁言處理 (1 小時) --- 
+            try : 
+                # 建立 1 小時後的超時時間 (timeout) 
+                duration = discord.utils.utcnow() + datetime.timedelta(hours=1 ) 
+                await message.author.timeout(duration, reason="數字接龍數錯" ) 
+                timeout_msg = "並已被禁言 1 小時。" 
+            except  discord.Forbidden: 
+                timeout_msg = "(禁言失敗：權限不足)" 
+            except Exception as  e: 
+                timeout_msg = f"(禁言失敗: {e})" 
+ 
+            # --- 數字減半與重置邏輯 --- 
+            old_num = game_data["current_number" ] 
+            new_num = max(0, old_num // 2 ) 
+            game_data["current_number" ] = new_num 
+            game_data["last_user_id"] = None 
+             
+            # 選擇語句 
+            chosen_msg = random.choice(wrong_number_insults) if is_not_last_user else  random.choice(double_tap_insults) 
+             
+            # 使用 reply 回覆並說明懲罰 
+            await message.reply(f"{message.author.mention} {chosen_msg} {timeout_msg}" ) 
+             
+            # 提示減半後的數字 
+            await message.channel.send(f"🔄️ 接龍失敗！分數已從 {old_num} 減半至 {new_num}，現在請接 {new_num + 1}。" )
 
     # 更新每日訊息計數
     user_id = str(message.author.id)
